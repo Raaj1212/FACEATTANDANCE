@@ -60,6 +60,19 @@
     <div class="relative w-[270px] h-[360px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500">
       <video id="webcam" autoplay muted playsinline></video>
       <canvas id="overlay"></canvas>
+
+      <!-- Top Lens Guide Inside Frame -->
+      <div class="absolute top-2 inset-x-2 z-10 pointer-events-none flex justify-center">
+        <span class="bg-slate-950/75 text-sky-200 border border-sky-500/40 px-2.5 py-0.5 rounded-full text-[10px] font-medium">
+          Look straight into the camera lens
+        </span>
+      </div>
+
+      <!-- Bottom Live Name & Status Inside Frame -->
+      <div
+        id="frame-overlay-status"
+        class="hidden absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl bg-slate-950/85 border border-emerald-500/60 text-center text-xs font-bold text-emerald-300 shadow-lg"
+      ></div>
     </div>
 
     <div class="flex items-center gap-2 mt-2.5 flex-wrap justify-center">
@@ -83,6 +96,17 @@
       </button>
     </div>
 
+    <!-- Temporary 12-Hour Universal Activation Button -->
+    <div class="mt-2 flex justify-center">
+      <button
+        id="btn-temp-universal"
+        onclick="activateTempUniversalWithPin()"
+        class="bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-600/70 px-3.5 py-1.5 rounded-lg text-xs font-semibold"
+      >
+        🔑 Temp Universal (4-Digit PIN)
+      </button>
+    </div>
+
     <div id="status-card" class="mt-3 px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-center w-full">
       <span id="status-text" class="text-sm font-medium text-amber-400">Camera initializing...</span>
     </div>
@@ -94,6 +118,39 @@
       <div class="flex justify-between items-center mb-3 border-b border-slate-800 pb-2">
         <h2 class="text-lg font-bold text-sky-400">Admin Kiosk Control</h2>
         <button onclick="closeAdminModal()" class="text-slate-400 hover:text-white font-bold text-lg">✕</button>
+      </div>
+
+      <!-- Current 4-Digit Temporary Universal PIN Viewer -->
+      <div class="mb-4 bg-emerald-950/40 p-3.5 rounded-xl border border-emerald-600/60">
+        <div class="flex items-center justify-between gap-2 mb-1">
+          <h3 class="text-sm font-semibold text-emerald-300">Temp 12-Hr Universal PIN (Single-Use)</h3>
+          <button
+            type="button"
+            onclick="regenerateTempPinFromAdmin()"
+            class="bg-emerald-700 hover:bg-emerald-600 text-white px-2.5 py-1 rounded-lg text-[11px] font-semibold"
+          >
+            New PIN + Email
+          </button>
+        </div>
+        <p class="text-[11px] text-slate-300 mb-2">
+          किसी भी टीचर को कॉल पर यह 4-डिजिट पिन दें। एक बार डलते ही उनका फ़ोन 12 घंटे के लिए Universal (बिना GPS) बन जाएगा और पिन अपने आप बदलकर Settings के सभी ईमेल पर आ जाएगा।
+        </p>
+        <div class="flex items-center justify-between bg-slate-900 border border-emerald-500/40 rounded-lg px-3 py-2">
+          <div>
+            <span class="text-[10px] text-slate-400 block">Current Active 4-Digit PIN:</span>
+            <span id="admin-current-temp-pin" class="text-xl font-extrabold tracking-widest text-emerald-400">----</span>
+          </div>
+          <div class="text-right">
+            <span id="admin-temp-pin-expiry" class="text-[10px] text-amber-300 block">Loading...</span>
+            <button
+              type="button"
+              onclick="fetchCurrentTempPinForAdmin()"
+              class="text-[10px] text-sky-400 underline mt-0.5"
+            >
+              Refresh PIN
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Same-Teacher Punch Delay Settings -->
@@ -164,9 +221,9 @@
 
       <!-- Universal Binding & Device GPS Bypass List -->
       <div class="mb-4 bg-slate-800 p-3.5 rounded-xl border border-slate-700">
-        <h3 class="text-sm font-semibold text-emerald-400 mb-1">Universal Kiosk Binding &amp; GPS Control</h3>
+        <h3 class="text-sm font-semibold text-emerald-400 mb-1">Permanent Universal Kiosk Binding &amp; GPS Control</h3>
         <p class="text-xs text-slate-400 mb-2.5">
-          Bind this device as Universal, or toggle <b>GPS</b> per universal device. Unticked = no GPS boundary check for that device.
+          Bind this device permanently as Universal, or toggle <b>GPS</b> per universal device. Unticked = no GPS boundary check for that device.
         </p>
         <input
           id="universal-label-input"
@@ -185,7 +242,7 @@
           onclick="bindUniversalDevice()"
           class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg text-xs font-semibold mb-3"
         >
-          Bind as Universal Device
+          Bind as Permanent Universal Device
         </button>
 
         <div class="border-t border-slate-700 pt-2.5">
@@ -289,6 +346,7 @@
     const MASTER_ADMIN_PIN = "admin@2007";
     const DEFAULT_CAMPUS_METERS = 30;
     const DEFAULT_DELAY_SECONDS = 3;
+    const TEMP_UNIVERSAL_DURATION_MS = 12 * 60 * 60 * 1000;
 
     const TURBO_DETECTOR_OPTIONS = () => new faceapi.TinyFaceDetectorOptions({
       inputSize: 128,
@@ -302,6 +360,7 @@
 
     const video = document.getElementById("webcam");
     const statusText = document.getElementById("status-text");
+    const frameOverlayStatus = document.getElementById("frame-overlay-status");
     const loadingBox = document.getElementById("loading-box");
     const statusCard = document.getElementById("status-card");
 
@@ -334,6 +393,130 @@
 
     let cachedCoords = null;
     let cachedCoordsTime = 0;
+
+    function getTempUniversalExpiry() {
+      const raw = parseInt(localStorage.getItem("bps_temp_universal_until") || "0", 10);
+      if (isNaN(raw) || raw <= Date.now()) {
+        if (raw > 0) {
+          localStorage.removeItem("bps_temp_universal_until");
+        }
+        return 0;
+      }
+      return raw;
+    }
+
+    function isTempUniversalActive() {
+      return getTempUniversalExpiry() > Date.now();
+    }
+
+    function formatRemainingTime(ms) {
+      if (ms <= 0) return "0m";
+      const totalMins = Math.ceil(ms / 60000);
+      const hrs = Math.floor(totalMins / 60);
+      const mins = totalMins % 60;
+      if (hrs > 0) return `${hrs}h ${mins}m`;
+      return `${mins}m`;
+    }
+
+    function activateTempUniversalWithPin() {
+      const pinInput = prompt("Enter 4-Digit Temporary Universal PIN (Valid for 12 Hours, No GPS):");
+      if (pinInput === null) return;
+      const cleanPin = pinInput.trim();
+      if (!/^\d{4}$/.test(cleanPin)) {
+        alert("कृपया सही 4-डिजिट नंबर पिन डालें।");
+        return;
+      }
+
+      setStatus("Verifying 4-digit PIN...", "neutral", 0, true);
+
+      fetch(WEB_APP_URL, {
+        method: "POST",
+        keepalive: true,
+        body: JSON.stringify({
+          action: "verifyTempPin",
+          pin: cleanPin,
+          deviceToken: getDeviceToken(),
+          userAgent: navigator.userAgent || ""
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.status === "SUCCESS") {
+          const expiresAt = Date.now() + TEMP_UNIVERSAL_DURATION_MS;
+          localStorage.setItem("bps_temp_universal_until", String(expiresAt));
+          updateModeLabels();
+          setStatus("Temp Universal Active for 12 Hours (No GPS)!", "success", 4000, true);
+          alert("Success! यह मोबाइल अब 12 घंटे के लिए Universal Device (बिना GPS सीमा) बन गया है।");
+        } else {
+          setStatus((data && data.message) || "Invalid or already used PIN!", "error", 3500, true);
+          alert("Error: " + ((data && data.message) || "गलत या पहले इस्तेमाल हो चुका पिन!"));
+        }
+      })
+      .catch(err => {
+        setStatus("Network error verifying PIN.", "error", 3500, true);
+        alert("Network error: " + err.message);
+      });
+    }
+
+    function fetchCurrentTempPinForAdmin() {
+      const pinEl = document.getElementById("admin-current-temp-pin");
+      const expEl = document.getElementById("admin-temp-pin-expiry");
+      if (pinEl) pinEl.innerText = "....";
+      if (expEl) expEl.innerText = "Fetching...";
+
+      fetch(WEB_APP_URL + "?action=getTempPin&_t=" + Date.now(), { cache: "no-store" })
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.status === "SUCCESS") {
+            if (pinEl) pinEl.innerText = data.pin || "----";
+            if (expEl) {
+              const countNote = typeof data.emailCount === "number" ? ` (${data.emailCount} emails)` : "";
+              if (data.expiresAt) {
+                const rem = parseInt(data.expiresAt, 10) - Date.now();
+                expEl.innerText = rem > 0
+                  ? `Auto-rotates in ${formatRemainingTime(rem)}${countNote}`
+                  : `Rotating soon${countNote}`;
+              } else {
+                expEl.innerText = `Single-use / 12h auto-rotate${countNote}`;
+              }
+            }
+          } else {
+            if (pinEl) pinEl.innerText = "ERR";
+            if (expEl) expEl.innerText = (data && data.message) || "Update Code.gs first";
+          }
+        })
+        .catch(() => {
+          if (pinEl) pinEl.innerText = "ERR";
+          if (expEl) expEl.innerText = "Network error";
+        });
+    }
+
+    function regenerateTempPinFromAdmin() {
+      const pinEl = document.getElementById("admin-current-temp-pin");
+      const expEl = document.getElementById("admin-temp-pin-expiry");
+      if (expEl) expEl.innerText = "Generating & Emailing...";
+
+      fetch(WEB_APP_URL, {
+        method: "POST",
+        keepalive: true,
+        body: JSON.stringify({
+          action: "regenerateTempPin"
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.status === "SUCCESS") {
+          if (pinEl) pinEl.innerText = data.pin || "----";
+          const sentNote = typeof data.emailCount === "number" ? ` to ${data.emailCount} emails` : "";
+          if (expEl) expEl.innerText = `New PIN emailed${sentNote} (12h)`;
+        } else {
+          if (expEl) expEl.innerText = (data && data.message) || "Failed";
+        }
+      })
+      .catch(() => {
+        if (expEl) expEl.innerText = "Network error";
+      });
+    }
 
     function getPunchDelayMs() {
       const enabledRaw = localStorage.getItem("bps_punch_delay_enabled");
@@ -574,6 +757,7 @@
     }
 
     function getClientMode() {
+      if (isTempUniversalActive()) return "universal";
       return localStorage.getItem("bps_device_mode") || "personal";
     }
 
@@ -604,6 +788,7 @@
     }
 
     function isCurrentDeviceGpsBypassed() {
+      if (isTempUniversalActive()) return true;
       if (getClientMode() !== "universal") return false;
       const token = getDeviceToken();
       const map = getUniversalDevicesMap();
@@ -618,7 +803,7 @@
       const map = getUniversalDevicesMap();
       const currentToken = getDeviceToken();
 
-      if (getClientMode() === "universal" && !map[currentToken]) {
+      if ((localStorage.getItem("bps_device_mode") === "universal") && !map[currentToken]) {
         upsertUniversalDeviceInLocal(currentToken, "This Device", true);
       }
 
@@ -688,6 +873,8 @@
     }
 
     function updateModeLabels() {
+      const tempExpiry = getTempUniversalExpiry();
+      const isTemp = tempExpiry > Date.now();
       const clientMode = getClientMode();
       const radius = getMaxCampusMeters();
       const gpsBypassed = isCurrentDeviceGpsBypassed();
@@ -698,12 +885,27 @@
       }
 
       const modeLine = document.getElementById("device-mode-label");
-      if (clientMode === "universal") {
-        modeLine.innerText = gpsBypassed
-          ? "Universal Kiosk (GPS Bypassed)"
-          : `Universal Kiosk (${radius}m GPS Active)`;
+      const tempBtn = document.getElementById("btn-temp-universal");
+
+      if (isTemp) {
+        const remText = formatRemainingTime(tempExpiry - Date.now());
+        modeLine.innerText = `Temp Universal Active (${remText} left • No GPS)`;
+        if (tempBtn) {
+          tempBtn.innerText = `✓ Temp Universal Active (${remText} left)`;
+          tempBtn.className = "bg-emerald-800/80 text-emerald-100 border border-emerald-400 px-3.5 py-1.5 rounded-lg text-xs font-semibold";
+        }
       } else {
-        modeLine.innerText = `Personal Device (${radius}m GPS Active)`;
+        if (tempBtn) {
+          tempBtn.innerText = "🔑 Temp Universal (4-Digit PIN)";
+          tempBtn.className = "bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-600/70 px-3.5 py-1.5 rounded-lg text-xs font-semibold";
+        }
+        if (clientMode === "universal") {
+          modeLine.innerText = gpsBypassed
+            ? "Universal Kiosk (GPS Bypassed)"
+            : `Universal Kiosk (${radius}m GPS Active)`;
+        } else {
+          modeLine.innerText = `Personal Device (${radius}m GPS Active)`;
+        }
       }
 
       const policyText =
@@ -713,7 +915,26 @@
       document.getElementById("policy-badge").innerText = policyText;
     }
 
-    function setStatus(html, tone, autoResetMs) {
+    function setFrameOverlay(html, tone, show) {
+      if (!frameOverlayStatus) return;
+      if (!show || !html) {
+        frameOverlayStatus.className = "hidden absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl text-center text-xs font-bold shadow-lg";
+        frameOverlayStatus.innerHTML = "";
+        return;
+      }
+      if (tone === "success") {
+        frameOverlayStatus.className = "block absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl bg-emerald-950/90 border border-emerald-400 text-center text-xs font-bold text-emerald-200 shadow-lg";
+      } else if (tone === "error") {
+        frameOverlayStatus.className = "block absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl bg-red-950/90 border border-red-400 text-center text-xs font-bold text-red-200 shadow-lg";
+      } else if (tone === "warn") {
+        frameOverlayStatus.className = "block absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl bg-amber-950/90 border border-amber-400 text-center text-xs font-bold text-amber-200 shadow-lg";
+      } else {
+        frameOverlayStatus.className = "block absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl bg-slate-950/85 border border-sky-400/60 text-center text-xs font-bold text-sky-200 shadow-lg";
+      }
+      frameOverlayStatus.innerHTML = html;
+    }
+
+    function setStatus(html, tone, autoResetMs, showInFrame) {
       if (statusResetTimer) {
         clearTimeout(statusResetTimer);
         statusResetTimer = null;
@@ -728,9 +949,17 @@
       } else {
         statusCard.className = "mt-3 px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-center w-full text-amber-400";
       }
+
+      if (showInFrame) {
+        setFrameOverlay(html, tone, true);
+      } else {
+        setFrameOverlay("", tone, false);
+      }
+
       if (autoResetMs && autoResetMs > 0) {
         statusResetTimer = setTimeout(() => {
-          setStatus("Scanning ready — face the camera.", "neutral", 0);
+          setFrameOverlay("", "neutral", false);
+          setStatus("Scanning ready — face the camera.", "neutral", 0, false);
         }, autoResetMs);
       }
     }
@@ -740,11 +969,13 @@
       isSyncing = false;
       lastPunchTime = {};
       isPunchInFlight = {};
-      setStatus("Refreshing camera & sheet...", "neutral", 0);
+      setFrameOverlay("", "neutral", false);
+      setStatus("Refreshing camera & sheet...", "neutral", 0, false);
+      updateModeLabels();
       startCamera();
       fetchConfigAndTeachers();
       setTimeout(() => {
-        setStatus("Scanning ready — face the camera.", "neutral", 0);
+        setStatus("Scanning ready — face the camera.", "neutral", 0, false);
       }, 1200);
     }
 
@@ -758,6 +989,7 @@
         loadPunchDelayUI();
         updateModeLabels();
         renderUniversalDevicesList();
+        fetchCurrentTempPinForAdmin();
         fetchConfigAndTeachers();
       } else if (pin !== null) {
         alert("Invalid admin password!");
@@ -780,7 +1012,7 @@
       enforceVideoMirror(video, useFrontCamera);
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setStatus("Camera API not supported on this browser.", "error", 0);
+        setStatus("Camera API not supported on this browser.", "error", 0, false);
         return;
       }
       navigator.mediaDevices.getUserMedia({
@@ -793,10 +1025,10 @@
         currentStream = stream;
         video.srcObject = stream;
         enforceVideoMirror(video, useFrontCamera);
-        setStatus("Scanning ready — face the camera.", "neutral", 0);
+        setStatus("Scanning ready — face the camera.", "neutral", 0, false);
       })
       .catch(err => {
-        setStatus("Camera error: " + err.message, "error", 0);
+        setStatus("Camera error: " + err.message, "error", 0, false);
       });
     }
 
@@ -858,7 +1090,7 @@
 
     function fetchConfigAndTeachers() {
       if (!WEB_APP_URL || WEB_APP_URL.indexOf("http") !== 0) {
-        setStatus("Set WEB_APP_URL in index.html first.", "warn", 0);
+        setStatus("Set WEB_APP_URL in index.html first.", "warn", 0, false);
         return;
       }
       if (isSyncing) return;
@@ -1141,7 +1373,7 @@
         if (matchedTeacher) {
           verifyLocationAndPunch(matchedTeacher);
         } else {
-          setStatus("Unrecognized face — rescanning...", "error", 2000);
+          setStatus("Unrecognized face — rescanning...", "error", 2000, true);
         }
       } catch (e) {
       } finally {
@@ -1204,7 +1436,7 @@
 
       if (delayMs > 0 && lastPunchTime[teacher.deviceId] && (now - lastPunchTime[teacher.deviceId] < delayMs)) {
         const waitSec = Math.ceil((delayMs - (now - lastPunchTime[teacher.deviceId])) / 1000);
-        setStatus(`<b>${escapeHtml(teacher.name)}</b> — Please wait ${waitSec}s before next punch`, "warn", 1500);
+        setStatus(`<b>${escapeHtml(teacher.name)}</b> — Please wait ${waitSec}s before next punch`, "warn", 1500, true);
         return;
       }
 
@@ -1212,7 +1444,7 @@
       const maxMeters = getMaxCampusMeters();
 
       if (attendanceMode === "Only_Universal" && !isUniversalClient) {
-        setStatus("Blocked: Only Universal Kiosk devices allowed. Rescanning...", "error", 2500);
+        setStatus("Blocked: Only Universal Kiosk devices allowed. Rescanning...", "error", 2500, true);
         return;
       }
 
@@ -1235,11 +1467,12 @@
           setStatus(
             `Outside boundary (${Math.round(dist)}m). Rescanning...`,
             "error",
-            2500
+            2500,
+            true
           );
         }
       } catch (e) {
-        setStatus("Enable GPS / Location — rescanning...", "warn", 2500);
+        setStatus("Enable GPS / Location — rescanning...", "warn", 2500, true);
       }
     }
 
@@ -1267,7 +1500,7 @@
       isPunchInFlight[teacher.deviceId] = true;
 
       const localTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      setStatus(`<b>${escapeHtml(teacher.name)}</b> — Marked at ${escapeHtml(localTime)}`, "success", STATUS_RESET_AFTER_MS);
+      setStatus(`<b>${escapeHtml(teacher.name)}</b> — Marked at ${escapeHtml(localTime)}`, "success", STATUS_RESET_AFTER_MS, true);
       speakFirstNameOnly(teacher.name);
 
       fetch(WEB_APP_URL, {
@@ -1279,6 +1512,7 @@
           punchMode: "Face AI",
           clientMode: getClientMode(),
           deviceToken: getDeviceToken(),
+          isTempUniversal: isTempUniversalActive(),
           timestamp: new Date().toISOString()
         })
       })
@@ -1290,13 +1524,14 @@
           setStatus(
             `<b>${escapeHtml(confirmedName)}</b> — ${escapeHtml(punchType)} at ${escapeHtml(data.time || localTime)}`,
             "success",
-            STATUS_RESET_AFTER_MS
+            STATUS_RESET_AFTER_MS,
+            true
           );
           if (punchType.toLowerCase().includes("out")) {
             speakFirstNameOnly(confirmedName);
           }
         } else if (data && data.message) {
-          setStatus(`<b>${escapeHtml(teacher.name)}</b> — ${escapeHtml(data.message)}`, "warn", STATUS_RESET_AFTER_MS);
+          setStatus(`<b>${escapeHtml(teacher.name)}</b> — ${escapeHtml(data.message)}`, "warn", STATUS_RESET_AFTER_MS, true);
         }
       })
       .catch(() => {})
@@ -1319,6 +1554,10 @@
     }
 
     setInterval(() => {
+      updateModeLabels();
+    }, 30000);
+
+    setInterval(() => {
       if (isModelLoaded && !isScanBusy && !isSyncing) {
         fetchConfigAndTeachers();
       }
@@ -1326,6 +1565,7 @@
 
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden && isModelLoaded && !isSyncing) {
+        updateModeLabels();
         fetchConfigAndTeachers();
       }
     });
