@@ -96,6 +96,45 @@
         <button onclick="closeAdminModal()" class="text-slate-400 hover:text-white font-bold text-lg">✕</button>
       </div>
 
+      <!-- Same-Teacher Punch Delay Settings -->
+      <div class="mb-4 bg-slate-800 p-3.5 rounded-xl border border-slate-700">
+        <div class="flex items-center justify-between gap-2 mb-1">
+          <h3 class="text-sm font-semibold text-sky-300">Same-Teacher Punch Delay (Seconds)</h3>
+          <label class="flex items-center gap-1.5 text-xs text-slate-200 cursor-pointer select-none">
+            <input
+              id="punch-delay-enabled"
+              type="checkbox"
+              checked
+              onchange="togglePunchDelayCheckbox(this.checked)"
+              class="w-4 h-4 accent-sky-500 rounded"
+            >
+            <span>Enable Delay</span>
+          </label>
+        </div>
+        <p class="text-xs text-slate-400 mb-2">
+          उसी टीचर का अगला पंच इतने सेकंड बाद ही लगेगा (दूसरे टीचर तुरंत लगा सकते हैं)। <b>0</b> या अनटिक करने पर डिले बंद हो जाएगा।
+        </p>
+        <div class="flex items-center gap-2">
+          <input
+            id="punch-delay-input"
+            type="number"
+            min="0"
+            max="3600"
+            step="1"
+            value="3"
+            placeholder="Seconds (e.g. 3 or 0)"
+            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+          >
+          <button
+            onclick="savePunchDelaySetting()"
+            class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-lg text-xs font-semibold whitespace-nowrap"
+          >
+            Save Delay
+          </button>
+        </div>
+        <p id="punch-delay-status" class="text-[11px] text-emerald-300 mt-1.5"></p>
+      </div>
+
       <!-- GPS Radius Settings -->
       <div class="mb-4 bg-slate-800 p-3.5 rounded-xl border border-slate-700">
         <h3 class="text-sm font-semibold text-amber-400 mb-1">GPS Radius Setting (Meters)</h3>
@@ -249,6 +288,7 @@
     const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxo_NX6V9a-gSLVph3-FxtNp6WuOIg-HBnV4M_a4TkL5wZ5fbcqqGgZNQVohrDrzCsg/exec";
     const MASTER_ADMIN_PIN = "admin@2007";
     const DEFAULT_CAMPUS_METERS = 30;
+    const DEFAULT_DELAY_SECONDS = 3;
 
     const TURBO_DETECTOR_OPTIONS = () => new faceapi.TinyFaceDetectorOptions({
       inputSize: 128,
@@ -256,10 +296,9 @@
     });
     const MATCH_THRESHOLD = 0.55;
     const STRONG_MATCH_BREAK = 0.45;
-    const SAME_TEACHER_COOLDOWN_MS = 12000;
     const AUTO_SYNC_INTERVAL_MS = 120000;
     const FRAME_MIN_GAP_MS = 350;
-    const STATUS_RESET_AFTER_MS = 3500;
+    const STATUS_RESET_AFTER_MS = 3000;
 
     const video = document.getElementById("webcam");
     const statusText = document.getElementById("status-text");
@@ -278,6 +317,7 @@
     let schoolLng = 85.5167;
     let attendanceMode = "Universal_And_Teacher";
     let lastPunchTime = {};
+    let isPunchInFlight = {};
     let useFrontCamera = true;
     let currentStream = null;
     let isScanBusy = false;
@@ -294,6 +334,84 @@
 
     let cachedCoords = null;
     let cachedCoordsTime = 0;
+
+    function getPunchDelayMs() {
+      const enabledRaw = localStorage.getItem("bps_punch_delay_enabled");
+      const enabled = enabledRaw === null ? true : enabledRaw === "true";
+      if (!enabled) return 0;
+
+      const secRaw = localStorage.getItem("bps_punch_delay_seconds");
+      const sec = secRaw === null ? DEFAULT_DELAY_SECONDS : parseFloat(secRaw);
+      if (isNaN(sec) || sec <= 0) return 0;
+      return Math.round(sec * 1000);
+    }
+
+    function loadPunchDelayUI() {
+      const enabledRaw = localStorage.getItem("bps_punch_delay_enabled");
+      const enabled = enabledRaw === null ? true : enabledRaw === "true";
+      const secRaw = localStorage.getItem("bps_punch_delay_seconds");
+      const sec = secRaw === null ? DEFAULT_DELAY_SECONDS : parseFloat(secRaw);
+
+      const cb = document.getElementById("punch-delay-enabled");
+      const inp = document.getElementById("punch-delay-input");
+      if (cb) cb.checked = enabled && !(sec === 0);
+      if (inp && document.activeElement !== inp) {
+        inp.value = isNaN(sec) ? DEFAULT_DELAY_SECONDS : sec;
+      }
+    }
+
+    function togglePunchDelayCheckbox(isChecked) {
+      const statusEl = document.getElementById("punch-delay-status");
+      const inp = document.getElementById("punch-delay-input");
+      if (!isChecked) {
+        localStorage.setItem("bps_punch_delay_enabled", "false");
+        if (inp) inp.value = "0";
+        localStorage.setItem("bps_punch_delay_seconds", "0");
+        if (statusEl) {
+          statusEl.className = "text-[11px] text-amber-300 mt-1.5";
+          statusEl.innerText = "Delay बंद कर दिया गया है (0s — लगातार In/Out चालू)।";
+        }
+      } else {
+        let val = inp ? parseFloat(inp.value) : DEFAULT_DELAY_SECONDS;
+        if (isNaN(val) || val <= 0) {
+          val = DEFAULT_DELAY_SECONDS;
+          if (inp) inp.value = String(val);
+        }
+        localStorage.setItem("bps_punch_delay_enabled", "true");
+        localStorage.setItem("bps_punch_delay_seconds", String(val));
+        if (statusEl) {
+          statusEl.className = "text-[11px] text-emerald-300 mt-1.5";
+          statusEl.innerText = `Same-Teacher Delay ${val} सेकंड पर चालू है।`;
+        }
+      }
+    }
+
+    function savePunchDelaySetting() {
+      const inp = document.getElementById("punch-delay-input");
+      const cb = document.getElementById("punch-delay-enabled");
+      const statusEl = document.getElementById("punch-delay-status");
+      const val = parseFloat(inp.value);
+
+      if (isNaN(val) || val < 0 || val > 3600) {
+        statusEl.className = "text-[11px] text-red-400 mt-1.5";
+        statusEl.innerText = "कृपया 0 से 3600 सेकंड के बीच सही संख्या डालें।";
+        return;
+      }
+
+      if (val === 0) {
+        localStorage.setItem("bps_punch_delay_seconds", "0");
+        localStorage.setItem("bps_punch_delay_enabled", "false");
+        if (cb) cb.checked = false;
+        statusEl.className = "text-[11px] text-amber-300 mt-1.5";
+        statusEl.innerText = "0 सेकंड सेव हुआ — Delay बंद है (लगातार In/Out हो सकता है)।";
+      } else {
+        localStorage.setItem("bps_punch_delay_seconds", String(val));
+        localStorage.setItem("bps_punch_delay_enabled", "true");
+        if (cb) cb.checked = true;
+        statusEl.className = "text-[11px] text-emerald-300 mt-1.5";
+        statusEl.innerText = `Same-Teacher Delay ${val} सेकंड पर सेव हो गया!`;
+      }
+    }
 
     function enforceVideoMirror(videoEl, isFront) {
       if (!videoEl) return;
@@ -621,6 +739,7 @@
       isScanBusy = false;
       isSyncing = false;
       lastPunchTime = {};
+      isPunchInFlight = {};
       setStatus("Refreshing camera & sheet...", "neutral", 0);
       startCamera();
       fetchConfigAndTeachers();
@@ -635,6 +754,8 @@
         document.getElementById("admin-modal").classList.remove("hidden");
         resetCapturedSamples();
         document.getElementById("gps-radius-status").innerText = "";
+        document.getElementById("punch-delay-status").innerText = "";
+        loadPunchDelayUI();
         updateModeLabels();
         renderUniversalDevicesList();
         fetchConfigAndTeachers();
@@ -1075,7 +1196,15 @@
 
     async function verifyLocationAndPunch(teacher) {
       const now = Date.now();
-      if (lastPunchTime[teacher.deviceId] && (now - lastPunchTime[teacher.deviceId] < SAME_TEACHER_COOLDOWN_MS)) {
+      const delayMs = getPunchDelayMs();
+
+      if (isPunchInFlight[teacher.deviceId]) {
+        return;
+      }
+
+      if (delayMs > 0 && lastPunchTime[teacher.deviceId] && (now - lastPunchTime[teacher.deviceId] < delayMs)) {
+        const waitSec = Math.ceil((delayMs - (now - lastPunchTime[teacher.deviceId])) / 1000);
+        setStatus(`<b>${escapeHtml(teacher.name)}</b> — Please wait ${waitSec}s before next punch`, "warn", 1500);
         return;
       }
 
@@ -1135,6 +1264,7 @@
 
     function sendAttendanceRealTime(teacher) {
       lastPunchTime[teacher.deviceId] = Date.now();
+      isPunchInFlight[teacher.deviceId] = true;
 
       const localTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       setStatus(`<b>${escapeHtml(teacher.name)}</b> — Marked at ${escapeHtml(localTime)}`, "success", STATUS_RESET_AFTER_MS);
@@ -1155,16 +1285,25 @@
       .then(res => res.json())
       .then(data => {
         if (data && data.status === "SUCCESS") {
+          const confirmedName = data.name || teacher.name;
+          const punchType = String(data.type || "Marked");
           setStatus(
-            `<b>${escapeHtml(data.name || teacher.name)}</b> — ${escapeHtml(data.type || "Marked")} at ${escapeHtml(data.time || localTime)}`,
+            `<b>${escapeHtml(confirmedName)}</b> — ${escapeHtml(punchType)} at ${escapeHtml(data.time || localTime)}`,
             "success",
             STATUS_RESET_AFTER_MS
           );
+          if (punchType.toLowerCase().includes("out")) {
+            speakFirstNameOnly(confirmedName);
+          }
         } else if (data && data.message) {
           setStatus(`<b>${escapeHtml(teacher.name)}</b> — ${escapeHtml(data.message)}`, "warn", STATUS_RESET_AFTER_MS);
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        isPunchInFlight[teacher.deviceId] = false;
+        lastPunchTime[teacher.deviceId] = Date.now();
+      });
     }
 
     function escapeHtml(s) {
