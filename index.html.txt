@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Brahmadev Public School - Smart Face Attendance Kiosk</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+  <style>
+    body {
+      background: #0b1120;
+      color: #f8fafc;
+      font-family: "Segoe UI", Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 100vh;
+    }
+    video {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body class="p-4 flex flex-col items-center justify-between">
+
+  <!-- Header -->
+  <header class="text-center w-full py-2 relative">
+    <h1 class="text-xl font-bold text-sky-400">Brahmadev Public School</h1>
+    <p id="device-mode-label" class="text-xs text-slate-400">Face Attendance Kiosk (15m GPS Active)</p>
+    <p id="policy-badge" class="text-[11px] text-amber-300 mt-0.5">Mode: Syncing...</p>
+    <button
+      onclick="openAdminModal()"
+      title="Admin Settings"
+      class="absolute top-2 right-2 bg-slate-800 hover:bg-slate-700 p-2 rounded-full border border-slate-700 text-sm"
+    >⚙️</button>
+  </header>
+
+  <!-- Scanner Area -->
+  <main class="flex flex-col items-center justify-center relative w-full max-w-sm flex-grow my-2">
+    <div id="loading-box" class="text-sky-300 font-medium text-xs mb-2 animate-pulse text-center">
+      AI Face Models Loading...
+    </div>
+
+    <div class="relative w-full h-[340px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500">
+      <video id="webcam" autoplay muted playsinline></video>
+      <canvas id="overlay"></canvas>
+    </div>
+
+    <div class="flex items-center gap-2 mt-2.5">
+      <button
+        onclick="switchCamera()"
+        class="bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
+      >
+        Switch Camera (Front / Back)
+      </button>
+      <button
+        onclick="fetchConfigAndTeachers()"
+        class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
+      >
+        Sync Sheet
+      </button>
+    </div>
+
+    <div id="status-card" class="mt-3 px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-center w-full">
+      <span id="status-text" class="text-sm font-medium text-amber-400">Camera initializing...</span>
+    </div>
+  </main>
+
+  <!-- Admin Modal -->
+  <div id="admin-modal" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+    <div class="bg-slate-900 border border-slate-700 w-full max-w-md p-6 rounded-2xl shadow-2xl overflow-y-auto max-h-[90vh]">
+      <div class="flex justify-between items-center mb-4 border-b border-slate-800 pb-2">
+        <h2 class="text-lg font-bold text-sky-400">Admin Kiosk Control</h2>
+        <button onclick="closeAdminModal()" class="text-slate-400 hover:text-white font-bold text-lg">✕</button>
+      </div>
+
+      <!-- Universal Binding -->
+      <div class="mb-5 bg-slate-800 p-4 rounded-xl border border-slate-700">
+        <h3 class="text-sm font-semibold text-emerald-400 mb-1.5">Universal Kiosk Binding</h3>
+        <p class="text-xs text-slate-400 mb-3">
+          Bind this device as a universal school kiosk (still enforces 15m campus GPS boundary).
+        </p>
+        <input
+          id="universal-pin-input"
+          type="password"
+          value="bps1234"
+          placeholder="Universal PIN (bps1234)"
+          class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white mb-2.5"
+        >
+        <button
+          onclick="bindUniversalDevice()"
+          class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg text-xs font-semibold"
+        >
+          Bind as Universal Device
+        </button>
+      </div>
+
+      <!-- Face Enrollment -->
+      <div class="bg-slate-800 p-4 rounded-xl border border-slate-700">
+        <h3 class="text-sm font-semibold text-sky-400 mb-1.5">Enroll Teacher Face</h3>
+        <p class="text-xs text-slate-400 mb-2.5">
+          Select a teacher from <code>Teachers_Master</code> and capture their face descriptor into Column F.
+        </p>
+        <label class="block text-xs font-medium text-slate-300 mb-1">Select Teacher:</label>
+        <select id="enroll-teacher-select" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white mb-3">
+          <option value="">-- Loading teachers --</option>
+        </select>
+        <button
+          onclick="startFaceEnrollment()"
+          class="w-full bg-sky-600 hover:bg-sky-700 text-white py-2.5 rounded-lg text-xs font-semibold"
+        >
+          Scan &amp; Save Face Descriptor
+        </button>
+        <p id="enroll-status" class="text-center text-xs mt-2 text-amber-300"></p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="w-full text-center pb-1 text-[11px] text-slate-500 border-t border-slate-800 pt-2">
+    Brahmadev Public School • Synced with Master Portal &amp; Google Sheets
+  </footer>
+
+  <script>
+    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxo_NX6V9a-gSLVph3-FxtNp6WuOIg-HBnV4M_a4TkL5wZ5fbcqqGgZNQVohrDrzCsg/exec";
+    const MASTER_ADMIN_PIN = "admin@2007";
+    const MAX_CAMPUS_METERS = 15;
+
+    const video = document.getElementById("webcam");
+    const statusText = document.getElementById("status-text");
+    const loadingBox = document.getElementById("loading-box");
+    const statusCard = document.getElementById("status-card");
+
+    let isModelLoaded = false;
+    let registeredTeachers = [];
+    let schoolLat = 26.5833;
+    let schoolLng = 85.5167;
+    let attendanceMode = "Universal_And_Teacher";
+    let lastPunchTime = {};
+    let useFrontCamera = true;
+    let currentStream = null;
+    let isPunchInFlight = false;
+
+    function getDeviceToken() {
+      let token = localStorage.getItem("bps_device_token");
+      if (!token) {
+        token = "dev_" + Math.random().toString(36).substring(2) + Date.now().toString(36);
+        localStorage.setItem("bps_device_token", token);
+      }
+      return token;
+    }
+
+    function getClientMode() {
+      return localStorage.getItem("bps_device_mode") || "personal";
+    }
+
+    function updateModeLabels() {
+      const clientMode = getClientMode();
+      document.getElementById("device-mode-label").innerText =
+        clientMode === "universal"
+          ? `Universal Kiosk Device (${MAX_CAMPUS_METERS}m GPS Active)`
+          : `Personal Device (${MAX_CAMPUS_METERS}m GPS Active)`;
+
+      const policyText =
+        attendanceMode === "Only_Universal"
+          ? `Policy: Only Universal Devices Allowed (${MAX_CAMPUS_METERS}m GPS)`
+          : `Policy: Universal + Teacher Devices Allowed (${MAX_CAMPUS_METERS}m GPS)`;
+      document.getElementById("policy-badge").innerText = policyText;
+    }
+
+    function setStatus(html, tone) {
+      statusText.innerHTML = html;
+      if (tone === "success") {
+        statusCard.className = "mt-3 px-4 py-3 rounded-xl bg-emerald-950 border border-emerald-600 text-center w-full text-emerald-300";
+      } else if (tone === "error") {
+        statusCard.className = "mt-3 px-4 py-3 rounded-xl bg-red-950 border border-red-600 text-center w-full text-red-300";
+      } else if (tone === "warn") {
+        statusCard.className = "mt-3 px-4 py-3 rounded-xl bg-amber-950 border border-amber-600 text-center w-full text-amber-300";
+      } else {
+        statusCard.className = "mt-3 px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-center w-full text-amber-400";
+      }
+    }
+
+    function openAdminModal() {
+      const pin = prompt("Enter Master Admin Password:");
+      if (pin === MASTER_ADMIN_PIN) {
+        document.getElementById("admin-modal").classList.remove("hidden");
+        fetchConfigAndTeachers();
+      } else if (pin !== null) {
+        alert("Invalid admin password!");
+      }
+    }
+
+    function closeAdminModal() {
+      document.getElementById("admin-modal").classList.add("hidden");
+    }
+
+    function switchCamera() {
+      useFrontCamera = !useFrontCamera;
+      startCamera();
+    }
+
+    function startCamera() {
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+      }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus("Camera API not supported on this browser.", "error");
+        return;
+      }
+      navigator.mediaDevices.getUserMedia({
+        video: { facingMode: useFrontCamera ? "user" : "environment" },
+        audio: false
+      })
+      .then(stream => {
+        currentStream = stream;
+        video.srcObject = stream;
+        setStatus("Scanning ready — face the camera.", "neutral");
+      })
+      .catch(err => {
+        setStatus("Camera error: " + err.message, "error");
+      });
+    }
+
+    function fetchConfigAndTeachers() {
+      if (!WEB_APP_URL || WEB_APP_URL.indexOf("http") !== 0) {
+        setStatus("Set WEB_APP_URL in index.html first.", "warn");
+        return;
+      }
+      fetch(WEB_APP_URL + "?action=getTeachers")
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.status === "SUCCESS") {
+            registeredTeachers = data.teachers || [];
+            if (data.attendanceMode) attendanceMode = data.attendanceMode;
+            if (data.schoolLat !== undefined && data.schoolLat !== "") schoolLat = parseFloat(data.schoolLat);
+            if (data.schoolLng !== undefined && data.schoolLng !== "") schoolLng = parseFloat(data.schoolLng);
+            updateModeLabels();
+
+            const select = document.getElementById("enroll-teacher-select");
+            let html = '<option value="">-- Select Teacher --</option>';
+            registeredTeachers.forEach(t => {
+              const badge = t.faceDescriptor ? " [Face Enrolled]" : " [No Face]";
+              html += `<option value="${escapeAttr(t.deviceId)}">${escapeHtml(t.name)} (ID: ${escapeHtml(t.deviceId)})${badge}</option>`;
+            });
+            select.innerHTML = html;
+          }
+        })
+        .catch(() => {
+          setStatus("Could not sync settings from Google Sheet.", "warn");
+        });
+    }
+
+    function bindUniversalDevice() {
+      const pin = document.getElementById("universal-pin-input").value.trim();
+      fetch(WEB_APP_URL, {
+        method: "POST",
+        body: JSON.stringify({
+          action: "registerUniversal",
+          pin: pin,
+          deviceToken: getDeviceToken()
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === "SUCCESS") {
+          localStorage.setItem("bps_device_mode", "universal");
+          updateModeLabels();
+          alert(data.message);
+        } else {
+          alert("Error: " + data.message);
+        }
+      })
+      .catch(err => alert("Network error: " + err.message));
+    }
+
+    async function startFaceEnrollment() {
+      const teacherId = document.getElementById("enroll-teacher-select").value;
+      const statusLabel = document.getElementById("enroll-status");
+      if (!teacherId) {
+        alert("Please select a teacher first.");
+        return;
+      }
+      if (!isModelLoaded) {
+        statusLabel.innerText = "Wait for AI models to finish loading...";
+        return;
+      }
+
+      statusLabel.innerText = "Detecting face...";
+      const detection = await faceapi
+        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+
+      if (!detection) {
+        statusLabel.innerText = "No clear face detected. Adjust lighting/camera.";
+        return;
+      }
+
+      statusLabel.innerText = "Saving face descriptor to Google Sheet...";
+      fetch(WEB_APP_URL, {
+        method: "POST",
+        body: JSON.stringify({
+          action: "enrollFace",
+          userId: teacherId,
+          faceDescriptor: JSON.stringify(Array.from(detection.descriptor))
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        statusLabel.innerText = data.message || "Done";
+        if (data.status === "SUCCESS") fetchConfigAndTeachers();
+      })
+      .catch(err => {
+        statusLabel.innerText = "Save failed: " + err.message;
+      });
+    }
+
+    function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+      const R = 6371e3;
+      const φ1 = lat1 * Math.PI / 180;
+      const φ2 = lat2 * Math.PI / 180;
+      const Δφ = (lat2 - lat1) * Math.PI / 180;
+      const Δλ = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+      return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+    }
+
+    async function loadModels() {
+      updateModeLabels();
+      try {
+        const modelUrl = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
+        await faceapi.nets.tinyFaceDetector.loadFromUri(modelUrl);
+        await faceapi.nets.faceLandmarkNet.loadFromUri(modelUrl);
+        await faceapi.nets.faceRecognitionNet.loadFromUri(modelUrl);
+        isModelLoaded = true;
+        loadingBox.innerText = "AI Face Recognition Ready";
+        loadingBox.className = "text-emerald-400 font-medium text-xs mb-2 text-center";
+        startCamera();
+        fetchConfigAndTeachers();
+      } catch (err) {
+        loadingBox.innerText = "Model load error: " + err.message;
+        loadingBox.className = "text-red-400 font-medium text-xs mb-2 text-center";
+      }
+    }
+
+    video.addEventListener("play", () => {
+      const canvas = document.getElementById("overlay");
+      faceapi.matchDimensions(canvas, {
+        width: video.videoWidth || 360,
+        height: video.videoHeight || 340
+      });
+
+      setInterval(async () => {
+        if (!isModelLoaded || isPunchInFlight || registeredTeachers.length === 0) return;
+
+        const detection = await faceapi
+          .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+        if (!detection) {
+          setStatus("Position your face inside the camera frame...", "neutral");
+          return;
+        }
+
+        let matchedTeacher = null;
+        let bestDistance = 0.45;
+
+        for (const t of registeredTeachers) {
+          if (!t.faceDescriptor) continue;
+          try {
+            const stored = new Float32Array(JSON.parse(t.faceDescriptor));
+            const dist = faceapi.euclideanDistance(detection.descriptor, stored);
+            if (dist < bestDistance) {
+              bestDistance = dist;
+              matchedTeacher = t;
+            }
+          } catch (e) {}
+        }
+
+        if (matchedTeacher) {
+          verifyLocationAndPunch(matchedTeacher);
+        } else {
+          setStatus("Unrecognized face — attendance not recorded.", "error");
+        }
+      }, 3000);
+    });
+
+    // 15-meter GPS check active on BOTH Universal and Personal devices
+    function verifyLocationAndPunch(teacher) {
+      const isUniversalClient = getClientMode() === "universal";
+
+      if (attendanceMode === "Only_Universal" && !isUniversalClient) {
+        setStatus("Blocked: Only Universal Kiosk devices are allowed right now.", "error");
+        return;
+      }
+
+      if (!navigator.geolocation) {
+        setStatus("GPS Geolocation is not supported on this device.", "warn");
+        return;
+      }
+
+      setStatus(
+        isUniversalClient
+          ? `Checking Universal Kiosk GPS boundary (${MAX_CAMPUS_METERS}m)...`
+          : `Checking Personal Device GPS boundary (${MAX_CAMPUS_METERS}m)...`,
+        "warn"
+      );
+
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          const dist = calculateDistanceMeters(
+            schoolLat,
+            schoolLng,
+            pos.coords.latitude,
+            pos.coords.longitude
+          );
+          if (dist <= MAX_CAMPUS_METERS) {
+            sendAttendance(teacher);
+          } else {
+            setStatus(
+              `Outside school boundary (${Math.round(dist)}m away). ${isUniversalClient ? "Universal Kiosk " : ""}Punch blocked.`,
+              "error"
+            );
+          }
+        },
+        () => {
+          setStatus("Please enable GPS / Location permission to punch attendance.", "warn");
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    }
+
+    function sendAttendance(teacher) {
+      const now = Date.now();
+      if (lastPunchTime[teacher.deviceId] && (now - lastPunchTime[teacher.deviceId] < 60000)) {
+        return;
+      }
+      lastPunchTime[teacher.deviceId] = now;
+      isPunchInFlight = true;
+
+      fetch(WEB_APP_URL, {
+        method: "POST",
+        body: JSON.stringify({
+          userId: teacher.deviceId,
+          teacherName: teacher.name,
+          punchMode: "Face AI",
+          clientMode: getClientMode(),
+          deviceToken: getDeviceToken(),
+          timestamp: new Date().toISOString()
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.status === "SUCCESS") {
+          setStatus(`<b>${escapeHtml(data.name)}</b> — ${escapeHtml(data.type)} at ${escapeHtml(data.time)}`, "success");
+          if ("speechSynthesis" in window) {
+            window.speechSynthesis.speak(new SpeechSynthesisUtterance(`Attendance recorded for ${data.name}`));
+          }
+        } else {
+          setStatus(escapeHtml((data && data.message) || "Attendance failed"), "error");
+        }
+      })
+      .catch(err => {
+        setStatus("Network error: " + escapeHtml(err.message), "error");
+      })
+      .finally(() => {
+        isPunchInFlight = false;
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s === null || s === undefined ? "" : s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function escapeAttr(s) {
+      return escapeHtml(s).replace(/'/g, "&#39;");
+    }
+
+    getDeviceToken();
+    loadModels();
+  </script>
+</body>
+</html>
