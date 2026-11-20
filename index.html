@@ -394,6 +394,15 @@
       updateModeLabels();
       try {
         await ensureFaceApiScript();
+        const nets = faceapi.nets || {};
+        const detectorNet = nets.tinyFaceDetector;
+        const landmarkNet = nets.faceLandmark68Net || nets.faceLandmarkNet;
+        const recognitionNet = nets.faceRecognitionNet;
+
+        if (!detectorNet || !landmarkNet || !recognitionNet) {
+          throw new Error("Required face-api network modules are unavailable");
+        }
+
         const modelUrls = [
           "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model/",
           "https://unpkg.com/@vladmandic/face-api@1.7.13/model/"
@@ -402,9 +411,9 @@
         let lastErr = null;
         for (const modelUrl of modelUrls) {
           try {
-            await faceapi.nets.tinyFaceDetector.loadFromUri(modelUrl);
-            await faceapi.nets.faceLandmarkNet.loadFromUri(modelUrl);
-            await faceapi.nets.faceRecognitionNet.loadFromUri(modelUrl);
+            await detectorNet.loadFromUri(modelUrl);
+            await landmarkNet.loadFromUri(modelUrl);
+            await recognitionNet.loadFromUri(modelUrl);
             loaded = true;
             break;
           } catch (e) {
