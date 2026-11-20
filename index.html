@@ -20,7 +20,8 @@
     }
     video {
       position: absolute;
-      inset: 0;
+      top: 0;
+      left: 0;
       width: 100%;
       height: 100%;
       object-fit: cover;
@@ -28,7 +29,8 @@
     }
     canvas {
       position: absolute;
-      inset: 0;
+      top: 0;
+      left: 0;
       width: 100%;
       height: 100%;
       pointer-events: none;
@@ -55,7 +57,7 @@
       AI Face Models Loading...
     </div>
 
-    <div class="relative w-[270px] aspect-[3/4] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500">
+    <div class="relative w-[270px] h-[360px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500">
       <video id="webcam" autoplay muted playsinline></video>
       <canvas id="overlay"></canvas>
     </div>
@@ -240,7 +242,7 @@
   </div>
 
   <footer class="w-full text-center pb-1 text-[11px] text-slate-500 border-t border-slate-800 pt-2">
-    Brahmadev Public School • Mirrored Front Portrait Face Kiosk
+    Brahmadev Public School • Full-Frame Portrait Face Kiosk
   </footer>
 
   <script>
@@ -662,9 +664,7 @@
       }
       navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: useFrontCamera ? "user" : "environment",
-          width: { ideal: 480 },
-          height: { ideal: 640 }
+          facingMode: useFrontCamera ? "user" : "environment"
         },
         audio: false
       })
@@ -957,7 +957,7 @@
         if (!loaded) throw lastErr || new Error("Failed to load face models");
 
         isModelLoaded = true;
-        loadingBox.innerText = "Mirrored Front Portrait Face Kiosk Ready";
+        loadingBox.innerText = "Full-Frame Portrait Face Kiosk Ready";
         loadingBox.className = "text-emerald-400 font-medium text-xs mb-2 text-center";
         startCamera();
         fetchConfigAndTeachers();
@@ -1045,8 +1045,8 @@
       enforceVideoMirror(video, useFrontCamera);
       const canvas = document.getElementById("overlay");
       faceapi.matchDimensions(canvas, {
-        width: video.videoWidth || 480,
-        height: video.videoHeight || 640
+        width: video.videoWidth || 360,
+        height: video.videoHeight || 480
       });
       startTurboScanLoop();
     });
