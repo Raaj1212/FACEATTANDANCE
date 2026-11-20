@@ -82,17 +82,17 @@
   </main>
 
   <!-- Admin Modal -->
-  <div id="admin-modal" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
-    <div class="bg-slate-900 border border-slate-700 w-full max-w-md p-6 rounded-2xl shadow-2xl overflow-y-auto max-h-[90vh]">
-      <div class="flex justify-between items-center mb-4 border-b border-slate-800 pb-2">
+  <div id="admin-modal" class="hidden fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-50">
+    <div class="bg-slate-900 border border-slate-700 w-full max-w-md p-5 rounded-2xl shadow-2xl overflow-y-auto max-h-[92vh]">
+      <div class="flex justify-between items-center mb-3 border-b border-slate-800 pb-2">
         <h2 class="text-lg font-bold text-sky-400">Admin Kiosk Control</h2>
         <button onclick="closeAdminModal()" class="text-slate-400 hover:text-white font-bold text-lg">✕</button>
       </div>
 
       <!-- Universal Binding -->
-      <div class="mb-5 bg-slate-800 p-4 rounded-xl border border-slate-700">
-        <h3 class="text-sm font-semibold text-emerald-400 mb-1.5">Universal Kiosk Binding</h3>
-        <p class="text-xs text-slate-400 mb-3">
+      <div class="mb-4 bg-slate-800 p-3.5 rounded-xl border border-slate-700">
+        <h3 class="text-sm font-semibold text-emerald-400 mb-1">Universal Kiosk Binding</h3>
+        <p class="text-xs text-slate-400 mb-2.5">
           Bind this device as a universal school kiosk (still enforces 15m campus GPS boundary).
         </p>
         <input
@@ -100,7 +100,7 @@
           type="password"
           value="bps1234"
           placeholder="Universal PIN (bps1234)"
-          class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white mb-2.5"
+          class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white mb-2"
         >
         <button
           onclick="bindUniversalDevice()"
@@ -111,11 +111,16 @@
       </div>
 
       <!-- Face Enrollment -->
-      <div class="bg-slate-800 p-4 rounded-xl border border-slate-700">
-        <h3 class="text-sm font-semibold text-sky-400 mb-1.5">Enroll Teacher Face</h3>
-        <p class="text-xs text-slate-400 mb-2.5">
-          Select a teacher from <code>Teachers_Master</code> and capture their face descriptor into Column F.
+      <div class="bg-slate-800 p-3.5 rounded-xl border border-slate-700">
+        <h3 class="text-sm font-semibold text-sky-400 mb-1">Enroll Teacher Face</h3>
+        <p class="text-xs text-slate-400 mb-2">
+          Select a teacher from <code>Teachers_Master</code> and capture their face into Column F.
         </p>
+
+        <div class="relative w-full h-[210px] bg-black rounded-xl overflow-hidden border border-sky-500/60 mb-3">
+          <video id="enroll-webcam" autoplay muted playsinline></video>
+        </div>
+
         <label class="block text-xs font-medium text-slate-300 mb-1">Select Teacher:</label>
         <select id="enroll-teacher-select" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white mb-3">
           <option value="">-- Loading teachers --</option>
@@ -141,6 +146,7 @@
     const MAX_CAMPUS_METERS = 15;
 
     const video = document.getElementById("webcam");
+    const enrollVideo = document.getElementById("enroll-webcam");
     const statusText = document.getElementById("status-text");
     const loadingBox = document.getElementById("loading-box");
     const statusCard = document.getElementById("status-card");
@@ -195,10 +201,19 @@
       }
     }
 
+    function attachEnrollStream() {
+      if (currentStream) {
+        enrollVideo.srcObject = currentStream;
+        enrollVideo.play().catch(() => {});
+      }
+    }
+
     function openAdminModal() {
       const pin = prompt("Enter Master Admin Password:");
       if (pin === MASTER_ADMIN_PIN) {
         document.getElementById("admin-modal").classList.remove("hidden");
+        document.getElementById("enroll-status").innerText = "";
+        attachEnrollStream();
         fetchConfigAndTeachers();
       } else if (pin !== null) {
         alert("Invalid admin password!");
@@ -207,6 +222,7 @@
 
     function closeAdminModal() {
       document.getElementById("admin-modal").classList.add("hidden");
+      enrollVideo.srcObject = null;
     }
 
     function switchCamera() {
@@ -229,6 +245,9 @@
       .then(stream => {
         currentStream = stream;
         video.srcObject = stream;
+        if (!document.getElementById("admin-modal").classList.contains("hidden")) {
+          attachEnrollStream();
+        }
         setStatus("Scanning ready — face the camera.", "neutral");
       })
       .catch(err => {
@@ -300,9 +319,15 @@
         return;
       }
 
+      const sourceVideo = (enrollVideo && enrollVideo.srcObject && enrollVideo.readyState >= 2) ? enrollVideo : video;
+      if (!sourceVideo || sourceVideo.readyState < 2) {
+        statusLabel.innerText = "Camera feed not ready yet. Close & reopen or allow camera.";
+        return;
+      }
+
       statusLabel.innerText = "Detecting face...";
       const detection = await faceapi
-        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+        .detectSingleFace(sourceVideo, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 }))
         .withFaceLandmarks()
         .withFaceDescriptor();
 
@@ -443,6 +468,7 @@
 
       setInterval(async () => {
         if (!isModelLoaded || isPunchInFlight || registeredTeachers.length === 0) return;
+        if (!document.getElementById("admin-modal").classList.contains("hidden")) return;
 
         const detection = await faceapi
           .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
@@ -477,7 +503,6 @@
       }, 3000);
     });
 
-    // 15-meter GPS check active on BOTH Universal and Personal devices
     function verifyLocationAndPunch(teacher) {
       const isUniversalClient = getClientMode() === "universal";
 
