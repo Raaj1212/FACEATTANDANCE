@@ -64,7 +64,7 @@
     </div>
 
     <div class="relative w-full h-[340px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500">
-      <video id="webcam" autoplay muted playsinline class="mirrored"></video>
+      <video id="webcam" autoplay muted playsinline class="unmirrored"></video>
       <canvas id="overlay"></canvas>
     </div>
 
@@ -160,10 +160,10 @@
         </div>
       </div>
 
-      <!-- Face Enrollment -->
+      <!-- Face Enrollment (Front / Slight Left / Slight Right - Unmirrored) -->
       <div class="bg-slate-800 p-3.5 rounded-xl border border-slate-700">
         <div class="flex items-center justify-between gap-2 mb-1">
-          <h3 class="text-sm font-semibold text-sky-400">Enroll Teacher Face</h3>
+          <h3 class="text-sm font-semibold text-sky-400">Enroll Teacher Face (3 Angles)</h3>
           <button
             type="button"
             onclick="switchEnrollCamera()"
@@ -173,12 +173,15 @@
           </button>
         </div>
         <p id="enroll-cam-label" class="text-[11px] text-slate-400 mb-2">
-          Active Camera: Front Camera (Natural View)
+          Active Camera: Front Camera (Unmirrored / Straight View)
         </p>
 
-        <div class="relative w-full h-[230px] bg-black rounded-xl overflow-hidden border border-sky-500/60 mb-3">
-          <video id="enroll-webcam" autoplay muted playsinline class="mirrored"></video>
+        <div class="relative w-full h-[230px] bg-black rounded-xl overflow-hidden border border-sky-500/60 mb-2">
+          <video id="enroll-webcam" autoplay muted playsinline class="unmirrored"></video>
         </div>
+        <p id="enroll-pose-guide" class="text-center text-xs font-semibold text-sky-300 mb-2.5">
+          Pose Guide: 1) Front → 2) Slight Left → 3) Slight Right
+        </p>
 
         <label class="block text-xs font-medium text-slate-300 mb-1">Select Teacher:</label>
         <select id="enroll-teacher-select" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white mb-3">
@@ -188,15 +191,15 @@
           onclick="startFaceEnrollment()"
           class="w-full bg-sky-600 hover:bg-sky-700 text-white py-2.5 rounded-lg text-xs font-semibold"
         >
-          Scan &amp; Save Face Descriptor
+          Capture 3 Angles (Front, Left, Right) &amp; Save
         </button>
-        <p id="enroll-status" class="text-center text-xs mt-2 text-amber-300"></p>
+        <p id="enroll-status" class="text-center text-xs font-semibold mt-2 text-amber-300"></p>
       </div>
     </div>
   </div>
 
   <footer class="w-full text-center pb-1 text-[11px] text-slate-500 border-t border-slate-800 pt-2">
-    Brahmadev Public School • Turbo Face Kiosk &amp; Instant Sheet Sync
+    Brahmadev Public School • Multi-Angle Fast Face Kiosk
   </footer>
 
   <script>
@@ -204,13 +207,17 @@
     const MASTER_ADMIN_PIN = "admin@2007";
     const DEFAULT_CAMPUS_METERS = 30;
 
-    // Turbo detection settings
     const TURBO_DETECTOR_OPTIONS = () => new faceapi.TinyFaceDetectorOptions({
       inputSize: 160,
       scoreThreshold: 0.45
     });
-    const MATCH_THRESHOLD = 0.48;
-    const STRONG_MATCH_BREAK = 0.40;
+    const ENROLL_POSES = [
+      { label: "1/3: Look Straight (Front)", pauseAfterMs: 950 },
+      { label: "2/3: Turn Slightly Left", pauseAfterMs: 950 },
+      { label: "3/3: Turn Slightly Right", pauseAfterMs: 250 }
+    ];
+    const MATCH_THRESHOLD = 0.54;
+    const STRONG_MATCH_BREAK = 0.45;
     const SAME_TEACHER_COOLDOWN_MS = 12000;
 
     const video = document.getElementById("webcam");
@@ -219,7 +226,6 @@
     const loadingBox = document.getElementById("loading-box");
     const statusCard = document.getElementById("status-card");
 
-    // Offscreen low-res canvas for fast AI frame capture
     const turboCanvas = document.createElement("canvas");
     turboCanvas.width = 320;
     turboCanvas.height = 240;
@@ -243,18 +249,37 @@
     let cachedCoords = null;
     let cachedCoordsTime = 0;
 
-    function applyMirrorClass(videoEl, isFront) {
+    // Always unmirrored so Left/Right is straight and natural
+    function applyMirrorClass(videoEl, _isFront) {
       if (!videoEl) return;
       videoEl.classList.remove("mirrored", "unmirrored");
-      videoEl.classList.add(isFront ? "mirrored" : "unmirrored");
+      videoEl.classList.add("unmirrored");
+    }
+
+    function setEnrollStatusText(msg, tone) {
+      const el = document.getElementById("enroll-status");
+      if (!el) return;
+      el.innerText = msg;
+      if (tone === "success") {
+        el.className = "text-center text-xs font-semibold mt-2 text-emerald-400";
+      } else if (tone === "error") {
+        el.className = "text-center text-xs font-semibold mt-2 text-red-400";
+      } else {
+        el.className = "text-center text-xs font-semibold mt-2 text-amber-300";
+      }
     }
 
     function updateEnrollCamLabel() {
       const lbl = document.getElementById("enroll-cam-label");
       if (!lbl) return;
       lbl.innerText = useEnrollFrontCamera
-        ? "Active Camera: Front Camera (Natural View)"
-        : "Active Camera: Back Camera (Straight View)";
+        ? "Active Camera: Front Camera (Unmirrored / Straight View)"
+        : "Active Camera: Back Camera (Unmirrored / Straight View)";
+    }
+
+    function setEnrollPoseGuide(text) {
+      const guide = document.getElementById("enroll-pose-guide");
+      if (guide) guide.innerText = text;
     }
 
     function startBackgroundGpsWatcher() {
@@ -466,9 +491,10 @@
       stopEnrollCamera();
       applyMirrorClass(enrollVideo, useEnrollFrontCamera);
       updateEnrollCamLabel();
+      setEnrollPoseGuide("Pose Guide: 1) Front → 2) Slight Left → 3) Slight Right");
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        document.getElementById("enroll-status").innerText = "Camera API not supported on this browser.";
+        setEnrollStatusText("Camera API not supported on this browser.", "error");
         return;
       }
 
@@ -486,7 +512,7 @@
         enrollVideo.play().catch(() => {});
       })
       .catch(err => {
-        document.getElementById("enroll-status").innerText = "Enroll camera error: " + err.message;
+        setEnrollStatusText("Enroll camera error: " + err.message, "error");
       });
     }
 
@@ -499,7 +525,7 @@
       const pin = prompt("Enter Master Admin Password:");
       if (pin === MASTER_ADMIN_PIN) {
         document.getElementById("admin-modal").classList.remove("hidden");
-        document.getElementById("enroll-status").innerText = "";
+        setEnrollStatusText("", "neutral");
         document.getElementById("gps-radius-status").innerText = "";
         updateModeLabels();
         renderUniversalDevicesList();
@@ -548,20 +574,39 @@
       });
     }
 
+    function parseDescriptorsList(rawDescriptor) {
+      if (!rawDescriptor) return [];
+      try {
+        const parsed = typeof rawDescriptor === "string" ? JSON.parse(rawDescriptor) : rawDescriptor;
+        if (!Array.isArray(parsed) || parsed.length === 0) return [];
+
+        if (Array.isArray(parsed[0])) {
+          const list = [];
+          for (let i = 0; i < parsed.length; i++) {
+            if (Array.isArray(parsed[i]) && parsed[i].length > 0) {
+              list.push(new Float32Array(parsed[i]));
+            }
+          }
+          return list;
+        }
+
+        return [new Float32Array(parsed)];
+      } catch (e) {
+        return [];
+      }
+    }
+
     function rebuildPreparedTeachers() {
       const list = [];
       for (const t of registeredTeachers) {
-        if (!t.faceDescriptor) continue;
-        try {
-          const arr = JSON.parse(t.faceDescriptor);
-          if (Array.isArray(arr) && arr.length > 0) {
-            list.push({
-              deviceId: t.deviceId,
-              name: t.name,
-              descriptor: new Float32Array(arr)
-            });
-          }
-        } catch (e) {}
+        const descArr = parseDescriptorsList(t.faceDescriptor);
+        if (descArr.length > 0) {
+          list.push({
+            deviceId: t.deviceId,
+            name: t.name,
+            descriptors: descArr
+          });
+        }
       }
       preparedTeachers = list;
     }
@@ -605,7 +650,8 @@
             const select = document.getElementById("enroll-teacher-select");
             let html = '<option value="">-- Select Teacher --</option>';
             registeredTeachers.forEach(t => {
-              const badge = t.faceDescriptor ? " [Face Enrolled]" : " [No Face]";
+              const count = parseDescriptorsList(t.faceDescriptor).length;
+              const badge = count > 0 ? ` [${count} Sample${count > 1 ? "s" : ""}]` : " [No Face]";
               html += `<option value="${escapeAttr(t.deviceId)}">${escapeHtml(t.name)} (ID: ${escapeHtml(t.deviceId)})${badge}</option>`;
             });
             select.innerHTML = html;
@@ -660,50 +706,84 @@
 
     async function startFaceEnrollment() {
       const teacherId = document.getElementById("enroll-teacher-select").value;
-      const statusLabel = document.getElementById("enroll-status");
       if (!teacherId) {
         alert("Please select a teacher first.");
         return;
       }
       if (!isModelLoaded || typeof faceapi === "undefined") {
-        statusLabel.innerText = "Wait for AI models to finish loading...";
+        setEnrollStatusText("Wait for AI models to finish loading...", "neutral");
         return;
       }
 
       const sourceVideo = (enrollVideo && enrollVideo.srcObject && enrollVideo.readyState >= 2) ? enrollVideo : video;
       if (!sourceVideo || sourceVideo.readyState < 2) {
-        statusLabel.innerText = "Camera feed not ready yet. Close & reopen or allow camera.";
+        setEnrollStatusText("Camera feed not ready yet. Close & reopen or allow camera.", "error");
         return;
       }
 
-      statusLabel.innerText = "Detecting face...";
-      const detection = await faceapi
-        .detectSingleFace(sourceVideo, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 }))
-        .withFaceLandmarks()
-        .withFaceDescriptor();
+      const samples = [];
+      for (let i = 0; i < ENROLL_POSES.length; i++) {
+        const pose = ENROLL_POSES[i];
+        setEnrollPoseGuide(pose.label);
+        setEnrollStatusText(`Capturing ${pose.label}...`, "neutral");
+        let detection = null;
 
-      if (!detection) {
-        statusLabel.innerText = "No clear face detected. Adjust lighting/camera.";
+        for (let attempt = 0; attempt < 6; attempt++) {
+          detection = await faceapi
+            .detectSingleFace(sourceVideo, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.35 }))
+            .withFaceLandmarks()
+            .withFaceDescriptor();
+          if (detection && detection.descriptor && detection.descriptor.length === 128) break;
+          detection = null;
+          await new Promise(r => setTimeout(r, 180));
+        }
+
+        if (!detection) {
+          setEnrollPoseGuide("Pose Guide: 1) Front → 2) Slight Left → 3) Slight Right");
+          setEnrollStatusText(`${pose.label} missed — nothing saved (all 3 required).`, "error");
+          return;
+        }
+
+        samples.push(Array.from(detection.descriptor));
+        if (pose.pauseAfterMs > 0) {
+          await new Promise(r => setTimeout(r, pose.pauseAfterMs));
+        }
+      }
+
+      // Strict 3-of-3 validation before saving anything
+      const allThreeValid =
+        samples.length === 3 &&
+        samples.every(s => Array.isArray(s) && s.length === 128);
+
+      if (!allThreeValid) {
+        setEnrollPoseGuide("Pose Guide: 1) Front → 2) Slight Left → 3) Slight Right");
+        setEnrollStatusText("Incomplete samples — nothing saved. All 3 poses required.", "error");
         return;
       }
 
-      statusLabel.innerText = "Saving face descriptor to Google Sheet...";
+      setEnrollPoseGuide("Pose Guide: 1) Front → 2) Slight Left → 3) Slight Right");
+      setEnrollStatusText("All 3 angles captured! Saving to Google Sheet...", "neutral");
+
       fetch(WEB_APP_URL, {
         method: "POST",
         keepalive: true,
         body: JSON.stringify({
           action: "enrollFace",
           userId: teacherId,
-          faceDescriptor: JSON.stringify(Array.from(detection.descriptor))
+          faceDescriptor: JSON.stringify(samples)
         })
       })
       .then(res => res.json())
       .then(data => {
-        statusLabel.innerText = data.message || "Done";
-        if (data.status === "SUCCESS") fetchConfigAndTeachers();
+        if (data && data.status === "SUCCESS") {
+          setEnrollStatusText(data.message || "Saved! All 3 face angles saved successfully.", "success");
+          fetchConfigAndTeachers();
+        } else {
+          setEnrollStatusText((data && data.message) || "Not saved — server returned error.", "error");
+        }
       })
       .catch(err => {
-        statusLabel.innerText = "Save failed: " + err.message;
+        setEnrollStatusText("Not saved — network error: " + err.message, "error");
       });
     }
 
@@ -801,7 +881,7 @@
         if (!loaded) throw lastErr || new Error("Failed to load face models");
 
         isModelLoaded = true;
-        loadingBox.innerText = "Turbo AI Face Recognition Ready";
+        loadingBox.innerText = "Multi-Angle Turbo Face Kiosk Ready";
         loadingBox.className = "text-emerald-400 font-medium text-xs mb-2 text-center";
         startCamera();
         fetchConfigAndTeachers();
@@ -822,7 +902,6 @@
         return;
       }
 
-      // Minimum 90ms between frames to keep UI fluid while rescanning continuously
       if (now - lastScanTimestamp < 90) {
         return;
       }
@@ -839,34 +918,35 @@
           .withFaceDescriptor();
 
         if (!detection) {
-          // Immediately ready for next frame
           return;
         }
 
         let matchedTeacher = null;
         let bestDistance = MATCH_THRESHOLD;
+        let strongMatchFound = false;
 
         for (let i = 0; i < preparedTeachers.length; i++) {
           const t = preparedTeachers[i];
-          const dist = faceapi.euclideanDistance(detection.descriptor, t.descriptor);
-          if (dist < bestDistance) {
-            bestDistance = dist;
-            matchedTeacher = t;
-            if (dist <= STRONG_MATCH_BREAK) {
-              break;
+          for (let j = 0; j < t.descriptors.length; j++) {
+            const dist = faceapi.euclideanDistance(detection.descriptor, t.descriptors[j]);
+            if (dist < bestDistance) {
+              bestDistance = dist;
+              matchedTeacher = t;
+              if (dist <= STRONG_MATCH_BREAK) {
+                strongMatchFound = true;
+                break;
+              }
             }
           }
+          if (strongMatchFound) break;
         }
 
         if (matchedTeacher) {
-          // Non-blocking punch trigger so rescan loop stays responsive
           verifyLocationAndPunch(matchedTeacher);
         } else {
-          // Instant rescan: show brief notice and immediately unlock for next frame
           setStatus("Unrecognized face — rescanning...", "error");
         }
       } catch (e) {
-        // Immediate rescan on error
       } finally {
         isScanBusy = false;
       }
@@ -956,11 +1036,20 @@
       }
     }
 
-    function speakThankYouOnly() {
+    function getFirstName(fullName) {
+      if (!fullName) return "";
+      const cleaned = String(fullName).trim();
+      if (!cleaned) return "";
+      return cleaned.split(/\s+/)[0];
+    }
+
+    function speakFirstNameOnly(fullName) {
       if (!("speechSynthesis" in window)) return;
+      const firstName = getFirstName(fullName);
+      if (!firstName) return;
       try {
         window.speechSynthesis.cancel();
-        const utter = new SpeechSynthesisUtterance("Thank you");
+        const utter = new SpeechSynthesisUtterance(firstName);
         utter.rate = 1.25;
         window.speechSynthesis.speak(utter);
       } catch (e) {}
@@ -971,9 +1060,8 @@
 
       const localTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       setStatus(`<b>${escapeHtml(teacher.name)}</b> — Punching (${localTime})...`, "success");
-      speakThankYouOnly();
+      speakFirstNameOnly(teacher.name);
 
-      // Send immediately to Google Sheet so real-time WhatsApp & Email notifications trigger
       fetch(WEB_APP_URL, {
         method: "POST",
         keepalive: true,
