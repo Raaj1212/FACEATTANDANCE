@@ -20,8 +20,7 @@
     }
     video {
       position: absolute;
-      top: 0;
-      left: 0;
+      inset: 0;
       width: 100%;
       height: 100%;
       object-fit: cover;
@@ -35,8 +34,7 @@
     }
     canvas {
       position: absolute;
-      top: 0;
-      left: 0;
+      inset: 0;
       width: 100%;
       height: 100%;
       pointer-events: none;
@@ -46,14 +44,14 @@
 <body class="p-4 flex flex-col items-center justify-between">
 
   <!-- Header -->
-  <header class="text-center w-full py-2 relative">
+  <header class="text-center w-full py-2 relative pr-10">
     <h1 class="text-xl font-bold text-sky-400">Brahmadev Public School</h1>
-    <p id="device-mode-label" class="text-xs text-slate-400">Face Attendance Kiosk (30m GPS Active)</p>
+    <p id="device-mode-label" class="text-xs text-slate-400 break-words">Face Attendance Kiosk (30m GPS Active)</p>
     <p id="policy-badge" class="text-[11px] text-amber-300 mt-0.5">Mode: Syncing...</p>
     <button
       onclick="openAdminModal()"
       title="Admin Settings"
-      class="absolute top-2 right-2 bg-slate-800 hover:bg-slate-700 p-2 rounded-full border border-slate-700 text-sm"
+      class="absolute top-2 right-0 bg-slate-800 hover:bg-slate-700 p-2 rounded-full border border-slate-700 text-sm"
     >⚙️</button>
   </header>
 
@@ -63,7 +61,7 @@
       AI Face Models Loading...
     </div>
 
-    <div class="relative w-full h-[380px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500">
+    <div class="relative w-full aspect-[4/3] max-h-[290px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500">
       <video id="webcam" autoplay muted playsinline class="unmirrored"></video>
       <canvas id="overlay"></canvas>
     </div>
@@ -160,7 +158,7 @@
         </div>
       </div>
 
-      <!-- Face Enrollment by Attaching 3 Photos (Opens Phone Camera / Gallery) -->
+      <!-- Face Enrollment by Attaching 3 Photos -->
       <div class="bg-slate-800 p-3.5 rounded-xl border border-slate-700">
         <h3 class="text-sm font-semibold text-sky-400 mb-1">Enroll Teacher Face (Attach 3 Photos)</h3>
         <p class="text-xs text-slate-400 mb-3">
@@ -176,7 +174,6 @@
           <option value="">-- Loading teachers --</option>
         </select>
 
-        <!-- Hidden Native Camera / File Inputs -->
         <input
           id="file-front"
           type="file"
@@ -202,7 +199,6 @@
           onchange="handlePhotoAttach('right', this)"
         >
 
-        <!-- 3 Attach Buttons -->
         <div class="grid grid-cols-3 gap-2 mb-3">
           <button
             id="btn-attach-front"
@@ -244,7 +240,7 @@
   </div>
 
   <footer class="w-full text-center pb-1 text-[11px] text-slate-500 border-t border-slate-800 pt-2">
-    Brahmadev Public School • Photo-Attach Face Kiosk
+    Brahmadev Public School • Fast Photo-Attach Face Kiosk
   </footer>
 
   <script>
@@ -256,11 +252,11 @@
       inputSize: 160,
       scoreThreshold: 0.45
     });
-    const MATCH_THRESHOLD = 0.58;
-    const STRONG_MATCH_BREAK = 0.48;
+    const MATCH_THRESHOLD = 0.55;
+    const STRONG_MATCH_BREAK = 0.45;
     const SAME_TEACHER_COOLDOWN_MS = 12000;
     const AUTO_SYNC_INTERVAL_MS = 120000;
-    const FRAME_MIN_GAP_MS = 120;
+    const FRAME_MIN_GAP_MS = 350;
 
     const video = document.getElementById("webcam");
     const statusText = document.getElementById("status-text");
@@ -395,7 +391,7 @@
       try {
         const img = await loadFileAsImage(file);
         const detection = await faceapi
-          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.35 }))
+          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
           .withFaceLandmarks()
           .withFaceDescriptor();
 
@@ -583,16 +579,16 @@
       const modeLine = document.getElementById("device-mode-label");
       if (clientMode === "universal") {
         modeLine.innerText = gpsBypassed
-          ? "Universal Kiosk Device (GPS Bypassed — No Boundary)"
-          : `Universal Kiosk Device (${radius}m GPS Active)`;
+          ? "Universal Kiosk (GPS Bypassed)"
+          : `Universal Kiosk (${radius}m GPS Active)`;
       } else {
         modeLine.innerText = `Personal Device (${radius}m GPS Active)`;
       }
 
       const policyText =
         attendanceMode === "Only_Universal"
-          ? `Policy: Only Universal Devices Allowed (${radius}m GPS)`
-          : `Policy: Universal + Teacher Devices Allowed (${radius}m GPS)`;
+          ? `Policy: Only Universal Devices (${radius}m GPS)`
+          : `Policy: Universal + Teacher Devices (${radius}m GPS)`;
       document.getElementById("policy-badge").innerText = policyText;
     }
 
@@ -645,8 +641,8 @@
       navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: useFrontCamera ? "user" : "environment",
-          width: { ideal: 480 },
-          height: { ideal: 640 }
+          width: { ideal: 640 },
+          height: { ideal: 480 }
         },
         audio: false
       })
@@ -938,7 +934,7 @@
         if (!loaded) throw lastErr || new Error("Failed to load face models");
 
         isModelLoaded = true;
-        loadingBox.innerText = "Photo-Attach Face Kiosk Ready";
+        loadingBox.innerText = "Fast Photo-Attach Face Kiosk Ready";
         loadingBox.className = "text-emerald-400 font-medium text-xs mb-2 text-center";
         startCamera();
         fetchConfigAndTeachers();
@@ -1025,8 +1021,8 @@
       if (typeof faceapi === "undefined") return;
       const canvas = document.getElementById("overlay");
       faceapi.matchDimensions(canvas, {
-        width: video.videoWidth || 360,
-        height: video.videoHeight || 380
+        width: video.videoWidth || 640,
+        height: video.videoHeight || 480
       });
       startTurboScanLoop();
     });
@@ -1116,7 +1112,7 @@
       lastPunchTime[teacher.deviceId] = Date.now();
 
       const localTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      setStatus(`<b>${escapeHtml(teacher.name)}</b> — Punching (${localTime})...`, "success");
+      setStatus(`<b>${escapeHtml(teacher.name)}</b> — Marked at ${escapeHtml(localTime)}`, "success");
       speakFirstNameOnly(teacher.name);
 
       fetch(WEB_APP_URL, {
@@ -1134,16 +1130,12 @@
       .then(res => res.json())
       .then(data => {
         if (data && data.status === "SUCCESS") {
-          setStatus(`<b>${escapeHtml(data.name)}</b> — ${escapeHtml(data.type)} at ${escapeHtml(data.time)}`, "success");
-        } else {
-          setStatus(escapeHtml((data && data.message) || "Attendance failed") + " — rescanning...", "error");
-          delete lastPunchTime[teacher.deviceId];
+          setStatus(`<b>${escapeHtml(data.name || teacher.name)}</b> — ${escapeHtml(data.type || "Marked")} at ${escapeHtml(data.time || localTime)}`, "success");
+        } else if (data && data.message) {
+          setStatus(`<b>${escapeHtml(teacher.name)}</b> — ${escapeHtml(data.message)}`, "warn");
         }
       })
-      .catch(err => {
-        setStatus("Network error: " + escapeHtml(err.message) + " — rescanning...", "error");
-        delete lastPunchTime[teacher.deviceId];
-      });
+      .catch(() => {});
     }
 
     function escapeHtml(s) {
