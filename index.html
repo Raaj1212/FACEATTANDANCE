@@ -160,25 +160,12 @@
         </div>
       </div>
 
-      <!-- Face Enrollment (Step-by-Step Front / Left / Right Buttons) -->
+      <!-- Face Enrollment by Attaching 3 Photos (Opens Phone Camera / Gallery) -->
       <div class="bg-slate-800 p-3.5 rounded-xl border border-slate-700">
-        <div class="flex items-center justify-between gap-2 mb-1">
-          <h3 class="text-sm font-semibold text-sky-400">Enroll Teacher Face (3 Separate Steps)</h3>
-          <button
-            type="button"
-            onclick="switchEnrollCamera()"
-            class="bg-slate-900 hover:bg-slate-700 text-sky-300 border border-slate-600 px-2.5 py-1 rounded-lg text-[11px] font-semibold"
-          >
-            Front / Back Camera
-          </button>
-        </div>
-        <p id="enroll-cam-label" class="text-[11px] text-slate-400 mb-2">
-          Active Camera: Front Camera (Unmirrored / Left-Right Straight)
+        <h3 class="text-sm font-semibold text-sky-400 mb-1">Enroll Teacher Face (Attach 3 Photos)</h3>
+        <p class="text-xs text-slate-400 mb-3">
+          Tap each button to open your phone's camera or gallery and attach <b>Front</b>, <b>Slight Left</b>, and <b>Slight Right</b> photos.
         </p>
-
-        <div class="relative w-full h-[290px] bg-black rounded-xl overflow-hidden border border-sky-500/60 mb-2.5">
-          <video id="enroll-webcam" autoplay muted playsinline class="unmirrored"></video>
-        </div>
 
         <label class="block text-xs font-medium text-slate-300 mb-1">Select Teacher:</label>
         <select
@@ -189,31 +176,57 @@
           <option value="">-- Loading teachers --</option>
         </select>
 
-        <!-- 3 Explicit Capture Buttons -->
-        <div class="grid grid-cols-3 gap-2 mb-2.5">
+        <!-- Hidden Native Camera / File Inputs -->
+        <input
+          id="file-front"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          class="hidden"
+          onchange="handlePhotoAttach('front', this)"
+        >
+        <input
+          id="file-left"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          class="hidden"
+          onchange="handlePhotoAttach('left', this)"
+        >
+        <input
+          id="file-right"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          class="hidden"
+          onchange="handlePhotoAttach('right', this)"
+        >
+
+        <!-- 3 Attach Buttons -->
+        <div class="grid grid-cols-3 gap-2 mb-3">
           <button
-            id="btn-cap-front"
+            id="btn-attach-front"
             type="button"
-            onclick="captureAngleSample('front')"
-            class="bg-slate-900 hover:bg-slate-700 border border-slate-600 text-slate-200 py-2 px-2 rounded-lg text-[11px] font-semibold text-center"
+            onclick="triggerPhotoAttach('file-front')"
+            class="bg-slate-900 hover:bg-slate-700 border border-slate-600 text-slate-200 py-2.5 px-2 rounded-lg text-[11px] font-semibold text-center"
           >
-            1. Front<br><span id="badge-front" class="text-[10px] text-amber-300">Pending</span>
+            1. Front Photo<br><span id="badge-front" class="text-[10px] text-amber-300">Attach</span>
           </button>
           <button
-            id="btn-cap-left"
+            id="btn-attach-left"
             type="button"
-            onclick="captureAngleSample('left')"
-            class="bg-slate-900 hover:bg-slate-700 border border-slate-600 text-slate-200 py-2 px-2 rounded-lg text-[11px] font-semibold text-center"
+            onclick="triggerPhotoAttach('file-left')"
+            class="bg-slate-900 hover:bg-slate-700 border border-slate-600 text-slate-200 py-2.5 px-2 rounded-lg text-[11px] font-semibold text-center"
           >
-            2. Left<br><span id="badge-left" class="text-[10px] text-amber-300">Pending</span>
+            2. Left Photo<br><span id="badge-left" class="text-[10px] text-amber-300">Attach</span>
           </button>
           <button
-            id="btn-cap-right"
+            id="btn-attach-right"
             type="button"
-            onclick="captureAngleSample('right')"
-            class="bg-slate-900 hover:bg-slate-700 border border-slate-600 text-slate-200 py-2 px-2 rounded-lg text-[11px] font-semibold text-center"
+            onclick="triggerPhotoAttach('file-right')"
+            class="bg-slate-900 hover:bg-slate-700 border border-slate-600 text-slate-200 py-2.5 px-2 rounded-lg text-[11px] font-semibold text-center"
           >
-            3. Right<br><span id="badge-right" class="text-[10px] text-amber-300">Pending</span>
+            3. Right Photo<br><span id="badge-right" class="text-[10px] text-amber-300">Attach</span>
           </button>
         </div>
 
@@ -223,7 +236,7 @@
           onclick="saveAllThreeFaceSamples()"
           class="w-full bg-sky-600 hover:bg-sky-700 text-white py-2.5 rounded-lg text-xs font-semibold"
         >
-          Save All 3 Angles (Front + Left + Right)
+          Save All 3 Photos (Front + Left + Right)
         </button>
         <p id="enroll-status" class="text-center text-xs font-semibold mt-2 text-amber-300"></p>
       </div>
@@ -231,7 +244,7 @@
   </div>
 
   <footer class="w-full text-center pb-1 text-[11px] text-slate-500 border-t border-slate-800 pt-2">
-    Brahmadev Public School • Smooth Auto-Sync Face Kiosk
+    Brahmadev Public School • Photo-Attach Face Kiosk
   </footer>
 
   <script>
@@ -250,7 +263,6 @@
     const FRAME_MIN_GAP_MS = 120;
 
     const video = document.getElementById("webcam");
-    const enrollVideo = document.getElementById("enroll-webcam");
     const statusText = document.getElementById("status-text");
     const loadingBox = document.getElementById("loading-box");
     const statusCard = document.getElementById("status-card");
@@ -268,9 +280,7 @@
     let attendanceMode = "Universal_And_Teacher";
     let lastPunchTime = {};
     let useFrontCamera = true;
-    let useEnrollFrontCamera = true;
     let currentStream = null;
-    let enrollStream = null;
     let isScanBusy = false;
     let isSyncing = false;
     let scanRafActive = false;
@@ -285,7 +295,6 @@
     let cachedCoords = null;
     let cachedCoordsTime = 0;
 
-    // Keep Left = Left and Right = Right (unmirrored)
     function applyMirrorClass(videoEl, _isFront) {
       if (!videoEl) return;
       videoEl.classList.remove("mirrored", "unmirrored");
@@ -307,38 +316,100 @@
 
     function updateAngleBadges() {
       const map = [
-        { key: "front", id: "badge-front", btnId: "btn-cap-front" },
-        { key: "left", id: "badge-left", btnId: "btn-cap-left" },
-        { key: "right", id: "badge-right", btnId: "btn-cap-right" }
+        { key: "front", id: "badge-front", btnId: "btn-attach-front" },
+        { key: "left", id: "badge-left", btnId: "btn-attach-left" },
+        { key: "right", id: "badge-right", btnId: "btn-attach-right" }
       ];
       map.forEach(item => {
         const badge = document.getElementById(item.id);
         const btn = document.getElementById(item.btnId);
         const done = Array.isArray(capturedSlots[item.key]) && capturedSlots[item.key].length === 128;
         if (badge) {
-          badge.innerText = done ? "✓ Done" : "Pending";
+          badge.innerText = done ? "✓ Done" : "Attach";
           badge.className = done ? "text-[10px] text-emerald-400 font-bold" : "text-[10px] text-amber-300";
         }
         if (btn) {
           btn.className = done
-            ? "bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500 text-emerald-200 py-2 px-2 rounded-lg text-[11px] font-semibold text-center"
-            : "bg-slate-900 hover:bg-slate-700 border border-slate-600 text-slate-200 py-2 px-2 rounded-lg text-[11px] font-semibold text-center";
+            ? "bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500 text-emerald-200 py-2.5 px-2 rounded-lg text-[11px] font-semibold text-center"
+            : "bg-slate-900 hover:bg-slate-700 border border-slate-600 text-slate-200 py-2.5 px-2 rounded-lg text-[11px] font-semibold text-center";
         }
       });
     }
 
     function resetCapturedSamples() {
       capturedSlots = { front: null, left: null, right: null };
+      ["file-front", "file-left", "file-right"].forEach(id => {
+        const inp = document.getElementById(id);
+        if (inp) inp.value = "";
+      });
       updateAngleBadges();
       setEnrollStatusText("", "neutral");
     }
 
-    function updateEnrollCamLabel() {
-      const lbl = document.getElementById("enroll-cam-label");
-      if (!lbl) return;
-      lbl.innerText = useEnrollFrontCamera
-        ? "Active Camera: Front Camera (Unmirrored / Left-Right Straight)"
-        : "Active Camera: Back Camera (Unmirrored / Left-Right Straight)";
+    function triggerPhotoAttach(inputId) {
+      const teacherId = document.getElementById("enroll-teacher-select").value;
+      if (!teacherId) {
+        setEnrollStatusText("Please select a teacher first.", "error");
+        return;
+      }
+      if (!isModelLoaded || typeof faceapi === "undefined") {
+        setEnrollStatusText("Wait for AI models to finish loading...", "neutral");
+        return;
+      }
+      const inp = document.getElementById(inputId);
+      if (inp) {
+        inp.value = "";
+        inp.click();
+      }
+    }
+
+    function loadFileAsImage(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error("Could not decode image file"));
+          img.src = e.target.result;
+        };
+        reader.onerror = () => reject(new Error("Could not read selected file"));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function handlePhotoAttach(angleKey, inputEl) {
+      const file = inputEl && inputEl.files && inputEl.files[0];
+      if (!file) return;
+
+      const labelMap = {
+        front: "Front Photo",
+        left: "Left Photo",
+        right: "Right Photo"
+      };
+      const photoLabel = labelMap[angleKey] || angleKey;
+
+      capturedSlots[angleKey] = null;
+      updateAngleBadges();
+      setEnrollStatusText(`Reading face from ${photoLabel}...`, "neutral");
+
+      try {
+        const img = await loadFileAsImage(file);
+        const detection = await faceapi
+          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.35 }))
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+        if (!detection || !detection.descriptor || detection.descriptor.length !== 128) {
+          setEnrollStatusText(`${photoLabel}: no clear face found — attach another clear photo.`, "error");
+          return;
+        }
+
+        capturedSlots[angleKey] = Array.from(detection.descriptor);
+        updateAngleBadges();
+        setEnrollStatusText(`${photoLabel} processed successfully!`, "success");
+      } catch (err) {
+        setEnrollStatusText(`${photoLabel} error: ` + err.message, "error");
+      }
     }
 
     function startBackgroundGpsWatcher() {
@@ -538,47 +609,6 @@
       }
     }
 
-    function stopEnrollCamera() {
-      if (enrollStream) {
-        enrollStream.getTracks().forEach(track => track.stop());
-        enrollStream = null;
-      }
-      enrollVideo.srcObject = null;
-    }
-
-    function startEnrollCamera() {
-      stopEnrollCamera();
-      applyMirrorClass(enrollVideo, useEnrollFrontCamera);
-      updateEnrollCamLabel();
-
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setEnrollStatusText("Camera API not supported on this browser.", "error");
-        return;
-      }
-
-      navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: useEnrollFrontCamera ? "user" : "environment",
-          width: { ideal: 480 },
-          height: { ideal: 640 }
-        },
-        audio: false
-      })
-      .then(stream => {
-        enrollStream = stream;
-        enrollVideo.srcObject = stream;
-        enrollVideo.play().catch(() => {});
-      })
-      .catch(err => {
-        setEnrollStatusText("Enroll camera error: " + err.message, "error");
-      });
-    }
-
-    function switchEnrollCamera() {
-      useEnrollFrontCamera = !useEnrollFrontCamera;
-      startEnrollCamera();
-    }
-
     function openAdminModal() {
       const pin = prompt("Enter Master Admin Password:");
       if (pin === MASTER_ADMIN_PIN) {
@@ -587,7 +617,6 @@
         document.getElementById("gps-radius-status").innerText = "";
         updateModeLabels();
         renderUniversalDevicesList();
-        startEnrollCamera();
         fetchConfigAndTeachers();
       } else if (pin !== null) {
         alert("Invalid admin password!");
@@ -596,7 +625,6 @@
 
     function closeAdminModal() {
       document.getElementById("admin-modal").classList.add("hidden");
-      stopEnrollCamera();
     }
 
     function switchCamera() {
@@ -773,52 +801,6 @@
       });
     }
 
-    async function captureAngleSample(angleKey) {
-      const teacherId = document.getElementById("enroll-teacher-select").value;
-      if (!teacherId) {
-        setEnrollStatusText("Please select a teacher first.", "error");
-        return;
-      }
-      if (!isModelLoaded || typeof faceapi === "undefined") {
-        setEnrollStatusText("Wait for AI models to finish loading...", "neutral");
-        return;
-      }
-
-      const sourceVideo = (enrollVideo && enrollVideo.srcObject && enrollVideo.readyState >= 2) ? enrollVideo : video;
-      if (!sourceVideo || sourceVideo.readyState < 2) {
-        setEnrollStatusText("Camera feed not ready yet.", "error");
-        return;
-      }
-
-      const labelMap = {
-        front: "Front (Straight)",
-        left: "Left Angle",
-        right: "Right Angle"
-      };
-      const angleName = labelMap[angleKey] || angleKey;
-      setEnrollStatusText(`Capturing ${angleName}... hold steady.`, "neutral");
-
-      let detection = null;
-      for (let attempt = 0; attempt < 5; attempt++) {
-        detection = await faceapi
-          .detectSingleFace(sourceVideo, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 }))
-          .withFaceLandmarks()
-          .withFaceDescriptor();
-        if (detection && detection.descriptor && detection.descriptor.length === 128) break;
-        detection = null;
-        await new Promise(r => setTimeout(r, 150));
-      }
-
-      if (!detection) {
-        setEnrollStatusText(`${angleName} not clear — position face cleanly and click ${angleName} again.`, "error");
-        return;
-      }
-
-      capturedSlots[angleKey] = Array.from(detection.descriptor);
-      updateAngleBadges();
-      setEnrollStatusText(`${angleName} captured!`, "success");
-    }
-
     function saveAllThreeFaceSamples() {
       const teacherId = document.getElementById("enroll-teacher-select").value;
       if (!teacherId) {
@@ -832,11 +814,11 @@
         samples.every(s => Array.isArray(s) && s.length === 128);
 
       if (!allThreeValid) {
-        setEnrollStatusText("All 3 angles (Front, Left, Right) must be captured before saving!", "error");
+        setEnrollStatusText("All 3 photos (Front, Left, Right) must be attached before saving!", "error");
         return;
       }
 
-      setEnrollStatusText("Saving all 3 angles to Google Sheet...", "neutral");
+      setEnrollStatusText("Saving all 3 face samples to Google Sheet...", "neutral");
 
       fetch(WEB_APP_URL, {
         method: "POST",
@@ -850,9 +832,8 @@
       .then(res => res.json())
       .then(data => {
         if (data && data.status === "SUCCESS") {
-          setEnrollStatusText(data.message || "Saved! Front, Left & Right face samples saved.", "success");
           resetCapturedSamples();
-          setEnrollStatusText(data.message || "Saved! Front, Left & Right face samples saved.", "success");
+          setEnrollStatusText(data.message || "Saved! All 3 photos saved successfully.", "success");
           fetchConfigAndTeachers();
         } else {
           setEnrollStatusText((data && data.message) || "Not saved — server returned error.", "error");
@@ -957,7 +938,7 @@
         if (!loaded) throw lastErr || new Error("Failed to load face models");
 
         isModelLoaded = true;
-        loadingBox.innerText = "Smooth Auto-Sync Face Kiosk Ready";
+        loadingBox.innerText = "Photo-Attach Face Kiosk Ready";
         loadingBox.className = "text-emerald-400 font-medium text-xs mb-2 text-center";
         startCamera();
         fetchConfigAndTeachers();
