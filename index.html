@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>Brahmadev Public School - Smart Face Attendance Kiosk</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+  <script id="faceapi-script" src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.js"></script>
   <style>
     body {
       background: #0b1120;
@@ -295,7 +295,7 @@
         alert("Please select a teacher first.");
         return;
       }
-      if (!isModelLoaded) {
+      if (!isModelLoaded || typeof faceapi === "undefined") {
         statusLabel.innerText = "Wait for AI models to finish loading...";
         return;
       }
@@ -341,13 +341,78 @@
       return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
     }
 
+    function ensureFaceApiScript() {
+      return new Promise((resolve, reject) => {
+        if (typeof faceapi !== "undefined") {
+          resolve();
+          return;
+        }
+        const fallbackUrls = [
+          "https://unpkg.com/@vladmandic/face-api@1.7.13/dist/face-api.js",
+          "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js",
+          "https://unpkg.com/@vladmandic/face-api/dist/face-api.min.js"
+        ];
+        let idx = 0;
+
+        function tryNext() {
+          if (typeof faceapi !== "undefined") {
+            resolve();
+            return;
+          }
+          if (idx >= fallbackUrls.length) {
+            reject(new Error("faceapi script blocked or failed to load from all CDNs"));
+            return;
+          }
+          const s = document.createElement("script");
+          s.src = fallbackUrls[idx++];
+          s.async = false;
+          s.onload = () => {
+            if (typeof faceapi !== "undefined") resolve();
+            else tryNext();
+          };
+          s.onerror = () => tryNext();
+          document.head.appendChild(s);
+        }
+
+        const primary = document.getElementById("faceapi-script");
+        if (primary) {
+          primary.addEventListener("load", () => {
+            if (typeof faceapi !== "undefined") resolve();
+            else tryNext();
+          });
+          primary.addEventListener("error", tryNext);
+          setTimeout(() => {
+            if (typeof faceapi === "undefined") tryNext();
+          }, 3000);
+        } else {
+          tryNext();
+        }
+      });
+    }
+
     async function loadModels() {
       updateModeLabels();
       try {
-        const modelUrl = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
-        await faceapi.nets.tinyFaceDetector.loadFromUri(modelUrl);
-        await faceapi.nets.faceLandmarkNet.loadFromUri(modelUrl);
-        await faceapi.nets.faceRecognitionNet.loadFromUri(modelUrl);
+        await ensureFaceApiScript();
+        const modelUrls = [
+          "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model/",
+          "https://unpkg.com/@vladmandic/face-api@1.7.13/model/"
+        ];
+        let loaded = false;
+        let lastErr = null;
+        for (const modelUrl of modelUrls) {
+          try {
+            await faceapi.nets.tinyFaceDetector.loadFromUri(modelUrl);
+            await faceapi.nets.faceLandmarkNet.loadFromUri(modelUrl);
+            await faceapi.nets.faceRecognitionNet.loadFromUri(modelUrl);
+            loaded = true;
+            break;
+          } catch (e) {
+            lastErr = e;
+          }
+        }
+        if (!loaded) throw lastErr || new Error("Failed to load face models");
+
         isModelLoaded = true;
         loadingBox.innerText = "AI Face Recognition Ready";
         loadingBox.className = "text-emerald-400 font-medium text-xs mb-2 text-center";
@@ -360,6 +425,7 @@
     }
 
     video.addEventListener("play", () => {
+      if (typeof faceapi === "undefined") return;
       const canvas = document.getElementById("overlay");
       faceapi.matchDimensions(canvas, {
         width: video.videoWidth || 360,
