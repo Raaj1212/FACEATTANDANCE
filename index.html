@@ -24,10 +24,11 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
+      transform: scaleX(1);
       transition: transform 0.1s ease;
     }
     video.mirrored {
-      transform: scaleX(-1);
+      transform: scaleX(1);
     }
     video.unmirrored {
       transform: scaleX(1);
@@ -61,7 +62,7 @@
       AI Face Models Loading...
     </div>
 
-    <div class="relative w-full aspect-[4/3] max-h-[290px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500">
+    <div class="relative w-full h-[340px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500">
       <video id="webcam" autoplay muted playsinline class="unmirrored"></video>
       <canvas id="overlay"></canvas>
     </div>
@@ -78,6 +79,12 @@
         class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
       >
         Sync Sheet
+      </button>
+      <button
+        onclick="refreshKiosk()"
+        class="bg-sky-900/80 hover:bg-sky-800 text-sky-200 border border-sky-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
+      >
+        Refresh
       </button>
     </div>
 
@@ -240,7 +247,7 @@
   </div>
 
   <footer class="w-full text-center pb-1 text-[11px] text-slate-500 border-t border-slate-800 pt-2">
-    Brahmadev Public School • Fast Photo-Attach Face Kiosk
+    Brahmadev Public School • Turbo Unmirrored Face Kiosk
   </footer>
 
   <script>
@@ -249,14 +256,15 @@
     const DEFAULT_CAMPUS_METERS = 30;
 
     const TURBO_DETECTOR_OPTIONS = () => new faceapi.TinyFaceDetectorOptions({
-      inputSize: 160,
-      scoreThreshold: 0.45
+      inputSize: 128,
+      scoreThreshold: 0.5
     });
     const MATCH_THRESHOLD = 0.55;
     const STRONG_MATCH_BREAK = 0.45;
     const SAME_TEACHER_COOLDOWN_MS = 12000;
     const AUTO_SYNC_INTERVAL_MS = 120000;
     const FRAME_MIN_GAP_MS = 350;
+    const STATUS_RESET_AFTER_MS = 3500;
 
     const video = document.getElementById("webcam");
     const statusText = document.getElementById("status-text");
@@ -264,8 +272,8 @@
     const statusCard = document.getElementById("status-card");
 
     const turboCanvas = document.createElement("canvas");
-    turboCanvas.width = 320;
-    turboCanvas.height = 240;
+    turboCanvas.width = 240;
+    turboCanvas.height = 180;
     const turboCtx = turboCanvas.getContext("2d", { willReadFrequently: true });
 
     let isModelLoaded = false;
@@ -281,6 +289,7 @@
     let isSyncing = false;
     let scanRafActive = false;
     let lastScanTimestamp = 0;
+    let statusResetTimer = null;
 
     let capturedSlots = {
       front: null,
@@ -295,6 +304,7 @@
       if (!videoEl) return;
       videoEl.classList.remove("mirrored", "unmirrored");
       videoEl.classList.add("unmirrored");
+      videoEl.style.transform = "scaleX(1)";
     }
 
     function setEnrollStatusText(msg, tone) {
@@ -592,7 +602,11 @@
       document.getElementById("policy-badge").innerText = policyText;
     }
 
-    function setStatus(html, tone) {
+    function setStatus(html, tone, autoResetMs) {
+      if (statusResetTimer) {
+        clearTimeout(statusResetTimer);
+        statusResetTimer = null;
+      }
       statusText.innerHTML = html;
       if (tone === "success") {
         statusCard.className = "mt-3 px-4 py-3 rounded-xl bg-emerald-950 border border-emerald-600 text-center w-full text-emerald-300";
@@ -603,6 +617,23 @@
       } else {
         statusCard.className = "mt-3 px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-center w-full text-amber-400";
       }
+      if (autoResetMs && autoResetMs > 0) {
+        statusResetTimer = setTimeout(() => {
+          setStatus("Scanning ready — face the camera.", "neutral", 0);
+        }, autoResetMs);
+      }
+    }
+
+    function refreshKiosk() {
+      isScanBusy = false;
+      isSyncing = false;
+      lastPunchTime = {};
+      setStatus("Refreshing camera & sheet...", "neutral", 0);
+      startCamera();
+      fetchConfigAndTeachers();
+      setTimeout(() => {
+        setStatus("Scanning ready — face the camera.", "neutral", 0);
+      }, 1200);
     }
 
     function openAdminModal() {
@@ -635,7 +666,7 @@
       applyMirrorClass(video, useFrontCamera);
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setStatus("Camera API not supported on this browser.", "error");
+        setStatus("Camera API not supported on this browser.", "error", 0);
         return;
       }
       navigator.mediaDevices.getUserMedia({
@@ -649,10 +680,11 @@
       .then(stream => {
         currentStream = stream;
         video.srcObject = stream;
-        setStatus("Scanning ready — face the camera.", "neutral");
+        applyMirrorClass(video, useFrontCamera);
+        setStatus("Scanning ready — face the camera.", "neutral", 0);
       })
       .catch(err => {
-        setStatus("Camera error: " + err.message, "error");
+        setStatus("Camera error: " + err.message, "error", 0);
       });
     }
 
@@ -714,7 +746,7 @@
 
     function fetchConfigAndTeachers() {
       if (!WEB_APP_URL || WEB_APP_URL.indexOf("http") !== 0) {
-        setStatus("Set WEB_APP_URL in index.html first.", "warn");
+        setStatus("Set WEB_APP_URL in index.html first.", "warn", 0);
         return;
       }
       if (isSyncing) return;
@@ -934,7 +966,7 @@
         if (!loaded) throw lastErr || new Error("Failed to load face models");
 
         isModelLoaded = true;
-        loadingBox.innerText = "Fast Photo-Attach Face Kiosk Ready";
+        loadingBox.innerText = "Turbo Unmirrored Face Kiosk Ready";
         loadingBox.className = "text-emerald-400 font-medium text-xs mb-2 text-center";
         startCamera();
         fetchConfigAndTeachers();
@@ -997,7 +1029,7 @@
         if (matchedTeacher) {
           verifyLocationAndPunch(matchedTeacher);
         } else {
-          setStatus("Unrecognized face — rescanning...", "error");
+          setStatus("Unrecognized face — rescanning...", "error", 2000);
         }
       } catch (e) {
       } finally {
@@ -1059,7 +1091,7 @@
       const maxMeters = getMaxCampusMeters();
 
       if (attendanceMode === "Only_Universal" && !isUniversalClient) {
-        setStatus("Blocked: Only Universal Kiosk devices allowed. Rescanning...", "error");
+        setStatus("Blocked: Only Universal Kiosk devices allowed. Rescanning...", "error", 2500);
         return;
       }
 
@@ -1081,11 +1113,12 @@
         } else {
           setStatus(
             `Outside boundary (${Math.round(dist)}m). Rescanning...`,
-            "error"
+            "error",
+            2500
           );
         }
       } catch (e) {
-        setStatus("Enable GPS / Location — rescanning...", "warn");
+        setStatus("Enable GPS / Location — rescanning...", "warn", 2500);
       }
     }
 
@@ -1112,7 +1145,7 @@
       lastPunchTime[teacher.deviceId] = Date.now();
 
       const localTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      setStatus(`<b>${escapeHtml(teacher.name)}</b> — Marked at ${escapeHtml(localTime)}`, "success");
+      setStatus(`<b>${escapeHtml(teacher.name)}</b> — Marked at ${escapeHtml(localTime)}`, "success", STATUS_RESET_AFTER_MS);
       speakFirstNameOnly(teacher.name);
 
       fetch(WEB_APP_URL, {
@@ -1130,9 +1163,13 @@
       .then(res => res.json())
       .then(data => {
         if (data && data.status === "SUCCESS") {
-          setStatus(`<b>${escapeHtml(data.name || teacher.name)}</b> — ${escapeHtml(data.type || "Marked")} at ${escapeHtml(data.time || localTime)}`, "success");
+          setStatus(
+            `<b>${escapeHtml(data.name || teacher.name)}</b> — ${escapeHtml(data.type || "Marked")} at ${escapeHtml(data.time || localTime)}`,
+            "success",
+            STATUS_RESET_AFTER_MS
+          );
         } else if (data && data.message) {
-          setStatus(`<b>${escapeHtml(teacher.name)}</b> — ${escapeHtml(data.message)}`, "warn");
+          setStatus(`<b>${escapeHtml(teacher.name)}</b> — ${escapeHtml(data.message)}`, "warn", STATUS_RESET_AFTER_MS);
         }
       })
       .catch(() => {});
