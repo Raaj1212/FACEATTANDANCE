@@ -41,7 +41,7 @@
   <!-- Header -->
   <header class="text-center w-full py-2 relative">
     <h1 class="text-xl font-bold text-sky-400">Brahmadev Public School</h1>
-    <p id="device-mode-label" class="text-xs text-slate-400">Face Attendance Kiosk (15m GPS Active)</p>
+    <p id="device-mode-label" class="text-xs text-slate-400">Face Attendance Kiosk (30m GPS Active)</p>
     <p id="policy-badge" class="text-[11px] text-amber-300 mt-0.5">Mode: Syncing...</p>
     <button
       onclick="openAdminModal()"
@@ -89,11 +89,38 @@
         <button onclick="closeAdminModal()" class="text-slate-400 hover:text-white font-bold text-lg">✕</button>
       </div>
 
+      <!-- GPS Radius Settings -->
+      <div class="mb-4 bg-slate-800 p-3.5 rounded-xl border border-slate-700">
+        <h3 class="text-sm font-semibold text-amber-400 mb-1">GPS Radius Setting (Meters)</h3>
+        <p class="text-xs text-slate-400 mb-2">
+          Set allowed campus boundary radius in meters (default: 30m).
+        </p>
+        <div class="flex items-center gap-2">
+          <input
+            id="gps-radius-input"
+            type="number"
+            min="5"
+            max="500"
+            step="1"
+            value="30"
+            placeholder="Meters (e.g. 30)"
+            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+          >
+          <button
+            onclick="saveGpsRadius()"
+            class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-xs font-semibold whitespace-nowrap"
+          >
+            Save Meters
+          </button>
+        </div>
+        <p id="gps-radius-status" class="text-[11px] text-emerald-300 mt-1.5"></p>
+      </div>
+
       <!-- Universal Binding -->
       <div class="mb-4 bg-slate-800 p-3.5 rounded-xl border border-slate-700">
         <h3 class="text-sm font-semibold text-emerald-400 mb-1">Universal Kiosk Binding</h3>
         <p class="text-xs text-slate-400 mb-2.5">
-          Bind this device as a universal school kiosk (still enforces 15m campus GPS boundary).
+          Bind this device as a universal school kiosk (still enforces active campus GPS boundary).
         </p>
         <input
           id="universal-pin-input"
@@ -143,7 +170,7 @@
   <script>
     const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxo_NX6V9a-gSLVph3-FxtNp6WuOIg-HBnV4M_a4TkL5wZ5fbcqqGgZNQVohrDrzCsg/exec";
     const MASTER_ADMIN_PIN = "admin@2007";
-    const MAX_CAMPUS_METERS = 15;
+    const DEFAULT_CAMPUS_METERS = 30;
 
     const video = document.getElementById("webcam");
     const enrollVideo = document.getElementById("enroll-webcam");
@@ -161,6 +188,29 @@
     let currentStream = null;
     let isPunchInFlight = false;
 
+    function getMaxCampusMeters() {
+      const saved = parseFloat(localStorage.getItem("bps_gps_radius_meters"));
+      if (!isNaN(saved) && saved >= 5 && saved <= 5000) {
+        return saved;
+      }
+      return DEFAULT_CAMPUS_METERS;
+    }
+
+    function saveGpsRadius() {
+      const input = document.getElementById("gps-radius-input");
+      const statusEl = document.getElementById("gps-radius-status");
+      const val = parseFloat(input.value);
+      if (isNaN(val) || val < 5 || val > 5000) {
+        statusEl.className = "text-[11px] text-red-400 mt-1.5";
+        statusEl.innerText = "कृपया 5 से 5000 मीटर के बीच सही संख्या डालें।";
+        return;
+      }
+      localStorage.setItem("bps_gps_radius_meters", String(val));
+      updateModeLabels();
+      statusEl.className = "text-[11px] text-emerald-300 mt-1.5";
+      statusEl.innerText = `GPS सीमा ${val} मीटर पर सेव हो गई!`;
+    }
+
     function getDeviceToken() {
       let token = localStorage.getItem("bps_device_token");
       if (!token) {
@@ -176,15 +226,21 @@
 
     function updateModeLabels() {
       const clientMode = getClientMode();
+      const radius = getMaxCampusMeters();
+      const radiusInput = document.getElementById("gps-radius-input");
+      if (radiusInput && document.activeElement !== radiusInput) {
+        radiusInput.value = radius;
+      }
+
       document.getElementById("device-mode-label").innerText =
         clientMode === "universal"
-          ? `Universal Kiosk Device (${MAX_CAMPUS_METERS}m GPS Active)`
-          : `Personal Device (${MAX_CAMPUS_METERS}m GPS Active)`;
+          ? `Universal Kiosk Device (${radius}m GPS Active)`
+          : `Personal Device (${radius}m GPS Active)`;
 
       const policyText =
         attendanceMode === "Only_Universal"
-          ? `Policy: Only Universal Devices Allowed (${MAX_CAMPUS_METERS}m GPS)`
-          : `Policy: Universal + Teacher Devices Allowed (${MAX_CAMPUS_METERS}m GPS)`;
+          ? `Policy: Only Universal Devices Allowed (${radius}m GPS)`
+          : `Policy: Universal + Teacher Devices Allowed (${radius}m GPS)`;
       document.getElementById("policy-badge").innerText = policyText;
     }
 
@@ -213,6 +269,8 @@
       if (pin === MASTER_ADMIN_PIN) {
         document.getElementById("admin-modal").classList.remove("hidden");
         document.getElementById("enroll-status").innerText = "";
+        document.getElementById("gps-radius-status").innerText = "";
+        updateModeLabels();
         attachEnrollStream();
         fetchConfigAndTeachers();
       } else if (pin !== null) {
@@ -505,6 +563,7 @@
 
     function verifyLocationAndPunch(teacher) {
       const isUniversalClient = getClientMode() === "universal";
+      const maxMeters = getMaxCampusMeters();
 
       if (attendanceMode === "Only_Universal" && !isUniversalClient) {
         setStatus("Blocked: Only Universal Kiosk devices are allowed right now.", "error");
@@ -518,8 +577,8 @@
 
       setStatus(
         isUniversalClient
-          ? `Checking Universal Kiosk GPS boundary (${MAX_CAMPUS_METERS}m)...`
-          : `Checking Personal Device GPS boundary (${MAX_CAMPUS_METERS}m)...`,
+          ? `Checking Universal Kiosk GPS boundary (${maxMeters}m)...`
+          : `Checking Personal Device GPS boundary (${maxMeters}m)...`,
         "warn"
       );
 
@@ -531,7 +590,7 @@
             pos.coords.latitude,
             pos.coords.longitude
           );
-          if (dist <= MAX_CAMPUS_METERS) {
+          if (dist <= maxMeters) {
             sendAttendance(teacher);
           } else {
             setStatus(
