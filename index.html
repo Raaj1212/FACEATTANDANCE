@@ -63,7 +63,7 @@
       AI Face Models Loading...
     </div>
 
-    <div class="relative w-full h-[340px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500">
+    <div class="relative w-full h-[380px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500">
       <video id="webcam" autoplay muted playsinline class="unmirrored"></video>
       <canvas id="overlay"></canvas>
     </div>
@@ -173,10 +173,10 @@
           </button>
         </div>
         <p id="enroll-cam-label" class="text-[11px] text-slate-400 mb-2">
-          Active Camera: Front Camera (Unmirrored / Straight View)
+          Active Camera: Front Camera (Unmirrored / Left-Right Straight)
         </p>
 
-        <div class="relative w-full h-[230px] bg-black rounded-xl overflow-hidden border border-sky-500/60 mb-2.5">
+        <div class="relative w-full h-[290px] bg-black rounded-xl overflow-hidden border border-sky-500/60 mb-2.5">
           <video id="enroll-webcam" autoplay muted playsinline class="unmirrored"></video>
         </div>
 
@@ -246,7 +246,7 @@
     const MATCH_THRESHOLD = 0.58;
     const STRONG_MATCH_BREAK = 0.48;
     const SAME_TEACHER_COOLDOWN_MS = 12000;
-    const AUTO_SYNC_INTERVAL_MS = 120000; // Every 2 minutes to keep face scan fast
+    const AUTO_SYNC_INTERVAL_MS = 120000;
     const FRAME_MIN_GAP_MS = 120;
 
     const video = document.getElementById("webcam");
@@ -285,6 +285,7 @@
     let cachedCoords = null;
     let cachedCoordsTime = 0;
 
+    // Keep Left = Left and Right = Right (unmirrored)
     function applyMirrorClass(videoEl, _isFront) {
       if (!videoEl) return;
       videoEl.classList.remove("mirrored", "unmirrored");
@@ -336,8 +337,8 @@
       const lbl = document.getElementById("enroll-cam-label");
       if (!lbl) return;
       lbl.innerText = useEnrollFrontCamera
-        ? "Active Camera: Front Camera (Unmirrored / Straight View)"
-        : "Active Camera: Back Camera (Unmirrored / Straight View)";
+        ? "Active Camera: Front Camera (Unmirrored / Left-Right Straight)"
+        : "Active Camera: Back Camera (Unmirrored / Left-Right Straight)";
     }
 
     function startBackgroundGpsWatcher() {
@@ -558,8 +559,8 @@
       navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: useEnrollFrontCamera ? "user" : "environment",
-          width: { ideal: 640 },
-          height: { ideal: 480 }
+          width: { ideal: 480 },
+          height: { ideal: 640 }
         },
         audio: false
       })
@@ -617,7 +618,7 @@
         video: {
           facingMode: useFrontCamera ? "user" : "environment",
           width: { ideal: 480 },
-          height: { ideal: 360 }
+          height: { ideal: 640 }
         },
         audio: false
       })
@@ -1044,7 +1045,7 @@
       const canvas = document.getElementById("overlay");
       faceapi.matchDimensions(canvas, {
         width: video.videoWidth || 360,
-        height: video.videoHeight || 340
+        height: video.videoHeight || 380
       });
       startTurboScanLoop();
     });
@@ -1176,7 +1177,6 @@
       return escapeHtml(s).replace(/'/g, "&#39;");
     }
 
-    // Smooth auto-sync every 2 minutes + when tab becomes visible or network reconnects
     setInterval(() => {
       if (isModelLoaded && !isScanBusy && !isSyncing) {
         fetchConfigAndTeachers();
