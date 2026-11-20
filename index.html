@@ -24,7 +24,6 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
-      transform: scaleX(1) !important;
       transition: transform 0.1s ease;
     }
     canvas {
@@ -241,7 +240,7 @@
   </div>
 
   <footer class="w-full text-center pb-1 text-[11px] text-slate-500 border-t border-slate-800 pt-2">
-    Brahmadev Public School • Unmirrored Portrait Face Kiosk
+    Brahmadev Public School • Mirrored Front Portrait Face Kiosk
   </footer>
 
   <script>
@@ -294,9 +293,9 @@
     let cachedCoords = null;
     let cachedCoordsTime = 0;
 
-    function enforceUnmirroredPortrait(videoEl) {
+    function enforceVideoMirror(videoEl, isFront) {
       if (!videoEl) return;
-      videoEl.style.transform = "scaleX(1)";
+      videoEl.style.transform = isFront ? "scaleX(-1)" : "scaleX(1)";
     }
 
     function setEnrollStatusText(msg, tone) {
@@ -655,7 +654,7 @@
       if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
       }
-      enforceUnmirroredPortrait(video);
+      enforceVideoMirror(video, useFrontCamera);
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         setStatus("Camera API not supported on this browser.", "error", 0);
@@ -672,7 +671,7 @@
       .then(stream => {
         currentStream = stream;
         video.srcObject = stream;
-        enforceUnmirroredPortrait(video);
+        enforceVideoMirror(video, useFrontCamera);
         setStatus("Scanning ready — face the camera.", "neutral", 0);
       })
       .catch(err => {
@@ -958,7 +957,7 @@
         if (!loaded) throw lastErr || new Error("Failed to load face models");
 
         isModelLoaded = true;
-        loadingBox.innerText = "Unmirrored Portrait Face Kiosk Ready";
+        loadingBox.innerText = "Mirrored Front Portrait Face Kiosk Ready";
         loadingBox.className = "text-emerald-400 font-medium text-xs mb-2 text-center";
         startCamera();
         fetchConfigAndTeachers();
@@ -1043,7 +1042,7 @@
 
     video.addEventListener("play", () => {
       if (typeof faceapi === "undefined") return;
-      enforceUnmirroredPortrait(video);
+      enforceVideoMirror(video, useFrontCamera);
       const canvas = document.getElementById("overlay");
       faceapi.matchDimensions(canvas, {
         width: video.videoWidth || 480,
