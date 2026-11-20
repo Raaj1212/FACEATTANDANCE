@@ -25,7 +25,7 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
-      transition: transform 0.15s ease;
+      transition: transform 0.1s ease;
     }
     video.mirrored {
       transform: scaleX(-1);
@@ -68,12 +68,12 @@
       <canvas id="overlay"></canvas>
     </div>
 
-    <div class="flex items-center gap-2 mt-2.5">
+    <div class="flex items-center gap-2 mt-2.5 flex-wrap justify-center">
       <button
         onclick="switchCamera()"
         class="bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
       >
-        Switch Camera (Front / Back)
+        Front / Back Camera
       </button>
       <button
         onclick="fetchConfigAndTeachers()"
@@ -127,7 +127,7 @@
       <div class="mb-4 bg-slate-800 p-3.5 rounded-xl border border-slate-700">
         <h3 class="text-sm font-semibold text-emerald-400 mb-1">Universal Kiosk Binding &amp; GPS Control</h3>
         <p class="text-xs text-slate-400 mb-2.5">
-          Bind this device as Universal, or toggle <b>Require GPS Boundary</b> per universal device. When unchecked, GPS check is skipped for that device.
+          Bind this device as Universal, or toggle <b>GPS</b> per universal device. Unticked = no GPS boundary check for that device.
         </p>
         <input
           id="universal-label-input"
@@ -155,7 +155,7 @@
             <span class="text-[10px] text-slate-400">Tick = GPS Required | Untick = No GPS</span>
           </div>
           <div id="universal-devices-list" class="space-y-2 max-h-44 overflow-y-auto">
-            <p class="text-xs text-slate-400">No universal devices recorded yet.</p>
+            <p class="text-xs text-slate-400">No universal devices bound yet.</p>
           </div>
         </div>
       </div>
@@ -196,7 +196,7 @@
   </div>
 
   <footer class="w-full text-center pb-1 text-[11px] text-slate-500 border-t border-slate-800 pt-2">
-    Brahmadev Public School • Fast AI Face &amp; GPS Engine
+    Brahmadev Public School • Turbo Face Kiosk &amp; Instant Sheet Sync
   </footer>
 
   <script>
@@ -204,17 +204,26 @@
     const MASTER_ADMIN_PIN = "admin@2007";
     const DEFAULT_CAMPUS_METERS = 30;
 
-    const FAST_DETECTOR_OPTIONS = () => new faceapi.TinyFaceDetectorOptions({
-      inputSize: 224,
+    // Turbo detection settings
+    const TURBO_DETECTOR_OPTIONS = () => new faceapi.TinyFaceDetectorOptions({
+      inputSize: 160,
       scoreThreshold: 0.45
     });
-    const SCAN_DELAY_MS = 650;
+    const MATCH_THRESHOLD = 0.48;
+    const STRONG_MATCH_BREAK = 0.40;
+    const SAME_TEACHER_COOLDOWN_MS = 12000;
 
     const video = document.getElementById("webcam");
     const enrollVideo = document.getElementById("enroll-webcam");
     const statusText = document.getElementById("status-text");
     const loadingBox = document.getElementById("loading-box");
     const statusCard = document.getElementById("status-card");
+
+    // Offscreen low-res canvas for fast AI frame capture
+    const turboCanvas = document.createElement("canvas");
+    turboCanvas.width = 320;
+    turboCanvas.height = 240;
+    const turboCtx = turboCanvas.getContext("2d", { willReadFrequently: true });
 
     let isModelLoaded = false;
     let registeredTeachers = [];
@@ -228,7 +237,8 @@
     let currentStream = null;
     let enrollStream = null;
     let isScanBusy = false;
-    let scanLoopStarted = false;
+    let scanRafActive = false;
+    let lastScanTimestamp = 0;
 
     let cachedCoords = null;
     let cachedCoordsTime = 0;
@@ -395,6 +405,7 @@
       if (WEB_APP_URL && WEB_APP_URL.indexOf("http") === 0) {
         fetch(WEB_APP_URL, {
           method: "POST",
+          keepalive: true,
           body: JSON.stringify({
             action: "toggleUniversalGps",
             deviceToken: token,
@@ -522,8 +533,8 @@
       navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: useFrontCamera ? "user" : "environment",
-          width: { ideal: 640 },
-          height: { ideal: 480 }
+          width: { ideal: 480 },
+          height: { ideal: 360 }
         },
         audio: false
       })
@@ -613,6 +624,7 @@
 
       fetch(WEB_APP_URL, {
         method: "POST",
+        keepalive: true,
         body: JSON.stringify({
           action: "registerUniversal",
           pin: pin,
@@ -678,6 +690,7 @@
       statusLabel.innerText = "Saving face descriptor to Google Sheet...";
       fetch(WEB_APP_URL, {
         method: "POST",
+        keepalive: true,
         body: JSON.stringify({
           action: "enrollFace",
           userId: teacherId,
@@ -788,7 +801,7 @@
         if (!loaded) throw lastErr || new Error("Failed to load face models");
 
         isModelLoaded = true;
-        loadingBox.innerText = "Fast AI Face Recognition Ready";
+        loadingBox.innerText = "Turbo AI Face Recognition Ready";
         loadingBox.className = "text-emerald-400 font-medium text-xs mb-2 text-center";
         startCamera();
         fetchConfigAndTeachers();
@@ -798,57 +811,77 @@
       }
     }
 
-    async function runFastScanLoop() {
-      if (scanLoopStarted) return;
-      scanLoopStarted = true;
+    async function processTurboFrame(now) {
+      if (
+        !isModelLoaded ||
+        isScanBusy ||
+        preparedTeachers.length === 0 ||
+        video.readyState < 2 ||
+        !document.getElementById("admin-modal").classList.contains("hidden")
+      ) {
+        return;
+      }
 
-      while (true) {
-        await new Promise(r => setTimeout(r, SCAN_DELAY_MS));
+      // Minimum 90ms between frames to keep UI fluid while rescanning continuously
+      if (now - lastScanTimestamp < 90) {
+        return;
+      }
 
-        if (
-          !isModelLoaded ||
-          isScanBusy ||
-          preparedTeachers.length === 0 ||
-          video.readyState < 2 ||
-          !document.getElementById("admin-modal").classList.contains("hidden")
-        ) {
-          continue;
+      isScanBusy = true;
+      lastScanTimestamp = now;
+
+      try {
+        turboCtx.drawImage(video, 0, 0, turboCanvas.width, turboCanvas.height);
+
+        const detection = await faceapi
+          .detectSingleFace(turboCanvas, TURBO_DETECTOR_OPTIONS())
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+        if (!detection) {
+          // Immediately ready for next frame
+          return;
         }
 
-        isScanBusy = true;
-        try {
-          const detection = await faceapi
-            .detectSingleFace(video, FAST_DETECTOR_OPTIONS())
-            .withFaceLandmarks()
-            .withFaceDescriptor();
+        let matchedTeacher = null;
+        let bestDistance = MATCH_THRESHOLD;
 
-          if (!detection) {
-            setStatus("Position your face inside the camera frame...", "neutral");
-          } else {
-            let matchedTeacher = null;
-            let bestDistance = 0.48;
-
-            for (let i = 0; i < preparedTeachers.length; i++) {
-              const t = preparedTeachers[i];
-              const dist = faceapi.euclideanDistance(detection.descriptor, t.descriptor);
-              if (dist < bestDistance) {
-                bestDistance = dist;
-                matchedTeacher = t;
-              }
-            }
-
-            if (matchedTeacher) {
-              await verifyLocationAndPunch(matchedTeacher);
-            } else {
-              setStatus("Unrecognized face — attendance not recorded.", "error");
+        for (let i = 0; i < preparedTeachers.length; i++) {
+          const t = preparedTeachers[i];
+          const dist = faceapi.euclideanDistance(detection.descriptor, t.descriptor);
+          if (dist < bestDistance) {
+            bestDistance = dist;
+            matchedTeacher = t;
+            if (dist <= STRONG_MATCH_BREAK) {
+              break;
             }
           }
-        } catch (e) {
-          // Ignore transient frame errors
-        } finally {
-          isScanBusy = false;
         }
+
+        if (matchedTeacher) {
+          // Non-blocking punch trigger so rescan loop stays responsive
+          verifyLocationAndPunch(matchedTeacher);
+        } else {
+          // Instant rescan: show brief notice and immediately unlock for next frame
+          setStatus("Unrecognized face — rescanning...", "error");
+        }
+      } catch (e) {
+        // Immediate rescan on error
+      } finally {
+        isScanBusy = false;
       }
+    }
+
+    function startTurboScanLoop() {
+      if (scanRafActive) return;
+      scanRafActive = true;
+
+      function loop(now) {
+        processTurboFrame(now);
+        requestAnimationFrame(loop);
+      }
+
+      requestAnimationFrame(loop);
     }
 
     video.addEventListener("play", () => {
@@ -858,12 +891,12 @@
         width: video.videoWidth || 360,
         height: video.videoHeight || 340
       });
-      runFastScanLoop();
+      startTurboScanLoop();
     });
 
     function getFastCoordinates() {
       return new Promise((resolve, reject) => {
-        if (cachedCoords && (Date.now() - cachedCoordsTime < 45000)) {
+        if (cachedCoords && (Date.now() - cachedCoordsTime < 60000)) {
           resolve(cachedCoords);
           return;
         }
@@ -878,14 +911,14 @@
             resolve(pos.coords);
           },
           err => reject(err),
-          { enableHighAccuracy: true, timeout: 6000, maximumAge: 30000 }
+          { enableHighAccuracy: false, timeout: 2500, maximumAge: 60000 }
         );
       });
     }
 
     async function verifyLocationAndPunch(teacher) {
       const now = Date.now();
-      if (lastPunchTime[teacher.deviceId] && (now - lastPunchTime[teacher.deviceId] < 60000)) {
+      if (lastPunchTime[teacher.deviceId] && (now - lastPunchTime[teacher.deviceId] < SAME_TEACHER_COOLDOWN_MS)) {
         return;
       }
 
@@ -893,12 +926,12 @@
       const maxMeters = getMaxCampusMeters();
 
       if (attendanceMode === "Only_Universal" && !isUniversalClient) {
-        setStatus("Blocked: Only Universal Kiosk devices are allowed right now.", "error");
+        setStatus("Blocked: Only Universal Kiosk devices allowed. Rescanning...", "error");
         return;
       }
 
       if (isUniversalClient && isCurrentDeviceGpsBypassed()) {
-        sendAttendanceInstant(teacher);
+        sendAttendanceRealTime(teacher);
         return;
       }
 
@@ -911,37 +944,39 @@
           coords.longitude
         );
         if (dist <= maxMeters) {
-          sendAttendanceInstant(teacher);
+          sendAttendanceRealTime(teacher);
         } else {
           setStatus(
-            `Outside school boundary (${Math.round(dist)}m away). ${isUniversalClient ? "Universal Kiosk " : ""}Punch blocked.`,
+            `Outside boundary (${Math.round(dist)}m). Rescanning...`,
             "error"
           );
         }
       } catch (e) {
-        setStatus("Please enable GPS / Location permission to punch attendance.", "warn");
+        setStatus("Enable GPS / Location — rescanning...", "warn");
       }
     }
 
-    function speakThankYou(name) {
+    function speakThankYouOnly() {
       if (!("speechSynthesis" in window)) return;
       try {
         window.speechSynthesis.cancel();
-        const utter = new SpeechSynthesisUtterance(`Thank you, ${name}`);
-        utter.rate = 1.15;
+        const utter = new SpeechSynthesisUtterance("Thank you");
+        utter.rate = 1.25;
         window.speechSynthesis.speak(utter);
       } catch (e) {}
     }
 
-    function sendAttendanceInstant(teacher) {
+    function sendAttendanceRealTime(teacher) {
       lastPunchTime[teacher.deviceId] = Date.now();
 
       const localTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      setStatus(`<b>${escapeHtml(teacher.name)}</b> — Punch Verified (${localTime}) • Syncing...`, "success");
-      speakThankYou(teacher.name);
+      setStatus(`<b>${escapeHtml(teacher.name)}</b> — Punching (${localTime})...`, "success");
+      speakThankYouOnly();
 
+      // Send immediately to Google Sheet so real-time WhatsApp & Email notifications trigger
       fetch(WEB_APP_URL, {
         method: "POST",
+        keepalive: true,
         body: JSON.stringify({
           userId: teacher.deviceId,
           teacherName: teacher.name,
@@ -956,12 +991,12 @@
         if (data && data.status === "SUCCESS") {
           setStatus(`<b>${escapeHtml(data.name)}</b> — ${escapeHtml(data.type)} at ${escapeHtml(data.time)}`, "success");
         } else {
-          setStatus(escapeHtml((data && data.message) || "Attendance failed"), "error");
+          setStatus(escapeHtml((data && data.message) || "Attendance failed") + " — rescanning...", "error");
           delete lastPunchTime[teacher.deviceId];
         }
       })
       .catch(err => {
-        setStatus("Network error: " + escapeHtml(err.message), "error");
+        setStatus("Network error: " + escapeHtml(err.message) + " — rescanning...", "error");
         delete lastPunchTime[teacher.deviceId];
       });
     }
