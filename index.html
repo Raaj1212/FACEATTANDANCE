@@ -165,45 +165,6 @@
         <button onclick="closeAdminModal()" class="text-slate-400 hover:text-white font-bold text-lg">✕</button>
       </div>
 
-      <!-- Dynamic School / Office GPS Location Setter (Saves Directly to Sheet) -->
-      <div class="mb-4 bg-sky-950/40 p-3.5 rounded-xl border border-sky-600/60">
-        <div class="flex items-center justify-between gap-2 mb-1">
-          <h3 class="text-sm font-semibold text-sky-300">School / Office GPS Location (Sheet Synced)</h3>
-          <button
-            type="button"
-            onclick="useCurrentLocationAndSave()"
-            class="bg-sky-600 hover:bg-sky-500 text-white px-2.5 py-1 rounded-lg text-[11px] font-semibold"
-          >
-            📍 Use Current & Save
-          </button>
-        </div>
-        <p class="text-[11px] text-slate-300 mb-2">
-          जहाँ आप मौजूद हैं वहाँ की लोकेशन सेव करने के लिए <b>Use Current & Save</b> दबाएं, या नीचे Lat/Lng डालकर <b>Save Location</b> दबाएं।
-        </p>
-        <div class="grid grid-cols-2 gap-2 mb-2">
-          <input
-            id="admin-school-lat"
-            type="text"
-            placeholder="Latitude (e.g. 26.5804989)"
-            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"
-          >
-          <input
-            id="admin-school-lng"
-            type="text"
-            placeholder="Longitude (e.g. 85.5090629)"
-            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"
-          >
-        </div>
-        <button
-          type="button"
-          onclick="saveManualSchoolLocation()"
-          class="w-full bg-sky-700 hover:bg-sky-600 text-white py-2 rounded-lg text-xs font-semibold"
-        >
-          Save Location to Google Sheet
-        </button>
-        <p id="admin-location-status" class="text-[11px] text-emerald-300 mt-1.5"></p>
-      </div>
-
       <!-- Current 4-Digit Temporary Universal PIN Viewer (Saved in Google Sheet) -->
       <div class="mb-4 bg-emerald-950/40 p-3.5 rounded-xl border border-emerald-600/60">
         <div class="flex items-center justify-between gap-2 mb-1">
@@ -426,7 +387,7 @@
   </footer>
 
   <script>
-    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzmzUeTNdTSuLOAWQ2BS_soVbT5exfOznEmhD_DJRzkqa9zaKyI8rAEilVJWoamQ5Se/exec";
+    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxOuB7J6UXRQ5IT66GaM4dHSILcyUSu1JsIAoa7i-_DYeg6SpsiiwqJ7E1a4SpxdLE2/exec";
     const MASTER_ADMIN_PIN = "admin@2007";
     const DEFAULT_CAMPUS_METERS = 30;
     const DEFAULT_DELAY_SECONDS = 3;
@@ -456,8 +417,8 @@
     let isModelLoaded = false;
     let registeredTeachers = [];
     let preparedTeachers = [];
-    let schoolLat = parseFloat(localStorage.getItem("bps_school_lat")) || 26.5804989;
-    let schoolLng = parseFloat(localStorage.getItem("bps_school_lng")) || 85.5090629;
+    let schoolLat = 26.5833;
+    let schoolLng = 85.5167;
     let attendanceMode = "Universal_And_Teacher";
     let lastPunchTime = {};
     let isPunchInFlight = {};
@@ -479,106 +440,6 @@
 
     let cachedCoords = null;
     let cachedCoordsTime = 0;
-
-    function syncSchoolLocationInputs() {
-      const latInp = document.getElementById("admin-school-lat");
-      const lngInp = document.getElementById("admin-school-lng");
-      if (latInp && document.activeElement !== latInp) {
-        latInp.value = String(schoolLat);
-      }
-      if (lngInp && document.activeElement !== lngInp) {
-        lngInp.value = String(schoolLng);
-      }
-    }
-
-    function pushSchoolLocationToServer(latVal, lngVal) {
-      const statusEl = document.getElementById("admin-location-status");
-      if (statusEl) {
-        statusEl.className = "text-[11px] text-sky-300 mt-1.5";
-        statusEl.innerText = "Saving location to Google Sheet...";
-      }
-
-      schoolLat = latVal;
-      schoolLng = lngVal;
-      localStorage.setItem("bps_school_lat", String(latVal));
-      localStorage.setItem("bps_school_lng", String(lngVal));
-      syncSchoolLocationInputs();
-
-      fetch(WEB_APP_URL, {
-        method: "POST",
-        keepalive: true,
-        body: JSON.stringify({
-          action: "updateSchoolLocation",
-          schoolLat: latVal,
-          schoolLng: lngVal
-        })
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.status === "SUCCESS") {
-          if (statusEl) {
-            statusEl.className = "text-[11px] text-emerald-300 mt-1.5";
-            statusEl.innerText = `Saved! (${latVal.toFixed(6)}, ${lngVal.toFixed(6)}) — सभी डिवाइस पर सिंक हो गया।`;
-          }
-        } else {
-          if (statusEl) {
-            statusEl.className = "text-[11px] text-amber-300 mt-1.5";
-            statusEl.innerText = `इस डिवाइस पर सेव हो गया (${latVal.toFixed(6)}, ${lngVal.toFixed(6)})। Sheet सिंक के लिए Code.gs अपडेट करें।`;
-          }
-        }
-      })
-      .catch(() => {
-        if (statusEl) {
-          statusEl.className = "text-[11px] text-amber-300 mt-1.5";
-          statusEl.innerText = `इस डिवाइस पर सेव हो गया (${latVal.toFixed(6)}, ${lngVal.toFixed(6)})।`;
-        }
-      });
-    }
-
-    function useCurrentLocationAndSave() {
-      const statusEl = document.getElementById("admin-location-status");
-      if (!navigator.geolocation) {
-        if (statusEl) {
-          statusEl.className = "text-[11px] text-red-400 mt-1.5";
-          statusEl.innerText = "इस ब्राउज़र में GPS सपोर्ट नहीं है।";
-        }
-        return;
-      }
-      if (statusEl) {
-        statusEl.className = "text-[11px] text-sky-300 mt-1.5";
-        statusEl.innerText = "Fetching high-accuracy current GPS location...";
-      }
-      navigator.geolocation.getCurrentPosition(
-        pos => {
-          const lat = parseFloat(pos.coords.latitude.toFixed(7));
-          const lng = parseFloat(pos.coords.longitude.toFixed(7));
-          cachedCoords = pos.coords;
-          cachedCoordsTime = Date.now();
-          pushSchoolLocationToServer(lat, lng);
-        },
-        err => {
-          if (statusEl) {
-            statusEl.className = "text-[11px] text-red-400 mt-1.5";
-            statusEl.innerText = "GPS error: " + err.message + " (Location permission चालू करें)";
-          }
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
-    }
-
-    function saveManualSchoolLocation() {
-      const statusEl = document.getElementById("admin-location-status");
-      const latVal = parseFloat((document.getElementById("admin-school-lat").value || "").trim());
-      const lngVal = parseFloat((document.getElementById("admin-school-lng").value || "").trim());
-      if (isNaN(latVal) || isNaN(lngVal) || latVal < -90 || latVal > 90 || lngVal < -180 || lngVal > 180) {
-        if (statusEl) {
-          statusEl.className = "text-[11px] text-red-400 mt-1.5";
-          statusEl.innerText = "कृपया सही Latitude और Longitude संख्या डालें।";
-        }
-        return;
-      }
-      pushSchoolLocationToServer(latVal, lngVal);
-    }
 
     function getTempUniversalExpiry() {
       const raw = parseInt(localStorage.getItem("bps_temp_universal_until") || "0", 10);
@@ -940,13 +801,11 @@
       if (!navigator.geolocation) return;
       navigator.geolocation.watchPosition(
         pos => {
-          if (pos && pos.coords && (typeof pos.coords.accuracy !== "number" || pos.coords.accuracy <= 100)) {
-            cachedCoords = pos.coords;
-            cachedCoordsTime = Date.now();
-          }
+          cachedCoords = pos.coords;
+          cachedCoordsTime = Date.now();
         },
         () => {},
-        { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+        { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 }
       );
     }
 
@@ -1212,8 +1071,6 @@
         resetCapturedSamples();
         document.getElementById("gps-radius-status").innerText = "";
         document.getElementById("punch-delay-status").innerText = "";
-        document.getElementById("admin-location-status").innerText = "";
-        syncSchoolLocationInputs();
         loadPunchDelayUI();
         updateModeLabels();
         renderUniversalDevicesList();
@@ -1335,15 +1192,8 @@
             registeredTeachers = data.teachers || [];
             rebuildPreparedTeachers();
             if (data.attendanceMode) attendanceMode = data.attendanceMode;
-            if (data.schoolLat !== undefined && data.schoolLat !== "" && !isNaN(parseFloat(data.schoolLat))) {
-              schoolLat = parseFloat(data.schoolLat);
-              localStorage.setItem("bps_school_lat", String(schoolLat));
-            }
-            if (data.schoolLng !== undefined && data.schoolLng !== "" && !isNaN(parseFloat(data.schoolLng))) {
-              schoolLng = parseFloat(data.schoolLng);
-              localStorage.setItem("bps_school_lng", String(schoolLng));
-            }
-            syncSchoolLocationInputs();
+            if (data.schoolLat !== undefined && data.schoolLat !== "") schoolLat = parseFloat(data.schoolLat);
+            if (data.schoolLng !== undefined && data.schoolLng !== "") schoolLng = parseFloat(data.schoolLng);
             if (data.universalDevices) syncUniversalDevicesFromServer(data.universalDevices);
             if (data.tempPin !== undefined) {
               syncedTempPin = String(data.tempPin || "");
@@ -1653,7 +1503,7 @@
 
     function getFastCoordinates() {
       return new Promise((resolve, reject) => {
-        if (cachedCoords && (Date.now() - cachedCoordsTime < 5000)) {
+        if (cachedCoords && (Date.now() - cachedCoordsTime < 60000)) {
           resolve(cachedCoords);
           return;
         }
@@ -1668,7 +1518,7 @@
             resolve(pos.coords);
           },
           err => reject(err),
-          { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+          { enableHighAccuracy: false, timeout: 2500, maximumAge: 60000 }
         );
       });
     }
@@ -1711,9 +1561,8 @@
         if (dist <= maxMeters) {
           sendAttendanceRealTime(teacher);
         } else {
-          const accText = typeof coords.accuracy === "number" ? ` | GPS Acc: ±${Math.round(coords.accuracy)}m` : "";
           setStatus(
-            `Outside boundary (${Math.round(dist)}m${accText}). Rescanning...`,
+            `Outside boundary (${Math.round(dist)}m). Rescanning...`,
             "error",
             2500,
             true
