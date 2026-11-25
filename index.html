@@ -417,8 +417,8 @@
     let isModelLoaded = false;
     let registeredTeachers = [];
     let preparedTeachers = [];
-    let schoolLat = 26.5833;
-    let schoolLng = 85.5167;
+    let schoolLat = 26.5804989;
+    let schoolLng = 85.5090629;
     let attendanceMode = "Universal_And_Teacher";
     let lastPunchTime = {};
     let isPunchInFlight = {};
@@ -801,11 +801,13 @@
       if (!navigator.geolocation) return;
       navigator.geolocation.watchPosition(
         pos => {
-          cachedCoords = pos.coords;
-          cachedCoordsTime = Date.now();
+          if (pos && pos.coords && (typeof pos.coords.accuracy !== "number" || pos.coords.accuracy <= 150)) {
+            cachedCoords = pos.coords;
+            cachedCoordsTime = Date.now();
+          }
         },
         () => {},
-        { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 }
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
       );
     }
 
@@ -1192,8 +1194,12 @@
             registeredTeachers = data.teachers || [];
             rebuildPreparedTeachers();
             if (data.attendanceMode) attendanceMode = data.attendanceMode;
-            if (data.schoolLat !== undefined && data.schoolLat !== "") schoolLat = parseFloat(data.schoolLat);
-            if (data.schoolLng !== undefined && data.schoolLng !== "") schoolLng = parseFloat(data.schoolLng);
+            if (data.schoolLat !== undefined && data.schoolLat !== "" && !isNaN(parseFloat(data.schoolLat))) {
+              schoolLat = parseFloat(data.schoolLat);
+            }
+            if (data.schoolLng !== undefined && data.schoolLng !== "" && !isNaN(parseFloat(data.schoolLng))) {
+              schoolLng = parseFloat(data.schoolLng);
+            }
             if (data.universalDevices) syncUniversalDevicesFromServer(data.universalDevices);
             if (data.tempPin !== undefined) {
               syncedTempPin = String(data.tempPin || "");
@@ -1503,7 +1509,7 @@
 
     function getFastCoordinates() {
       return new Promise((resolve, reject) => {
-        if (cachedCoords && (Date.now() - cachedCoordsTime < 60000)) {
+        if (cachedCoords && (Date.now() - cachedCoordsTime < 5000)) {
           resolve(cachedCoords);
           return;
         }
@@ -1518,7 +1524,7 @@
             resolve(pos.coords);
           },
           err => reject(err),
-          { enableHighAccuracy: false, timeout: 2500, maximumAge: 60000 }
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
       });
     }
@@ -1561,8 +1567,9 @@
         if (dist <= maxMeters) {
           sendAttendanceRealTime(teacher);
         } else {
+          const accText = typeof coords.accuracy === "number" ? ` | GPS Acc: ±${Math.round(coords.accuracy)}m` : "";
           setStatus(
-            `Outside boundary (${Math.round(dist)}m). Rescanning...`,
+            `Outside boundary (${Math.round(dist)}m${accText}). Rescanning...`,
             "error",
             2500,
             true
